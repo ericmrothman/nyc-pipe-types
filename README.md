@@ -4,15 +4,15 @@ This project started as a general curiosity about all the weird pipes sticking o
 
 ## Data Gathering and a Pivot
 
-I decided to do a little data-gathering expedition. I took a meandering route and grabbed pictures and video for 3D scanning purposes. I walked around for maybe three hours and took almost 150 pictures. 
+I decided to do a little data-gathering expedition. I took a meandering route and grabbed pictures (and video for re-creating 3D models of the pipes at some point). I walked around for three-ish hours and took almost 150 pictures. 
 
-When I got back and brought the photos into QGIS, I found that the GPS accuracy was nowhere near good enough for identifying the building that the pipes were meant to be originating from. I had to abandon that initial idea and pivot toward a different kind of analysis. 
+When I got back and brought the photos into QGIS, I found that the GPS accuracy was nowhere near good enough to accurately pair pipes with the buildings they belong to. I had to abandon that initial idea and pivot toward a different kind of analysis. 
 
-I ended up simply categorizing the pipes into different buckets based on their function, doing a little bit of research into what the various pipes are for, and then just going through each bucket one by one to show people the various pipes that exist. 
+I ended up simply categorizing the pipes into different buckets based on their function, doing a little bit of research into what the various pipes are for, and then just going through each bucket one by one to show people that pipes are cool and weird. 
 
 ## Process and Tools
 
-* **QGIS & Illustrator:** I used QGIS to recreate the route that I walked based on the GPS coordinates of the photos I pulled in, as well as the GPS coordinates of the photos themselves, even though they are inaccurate. I used these coordinates to make a color-coded map of the locations of the pipes. I also used Adobe Illustrator to simplify the maps visually. 
+* **QGIS & Illustrator:** I used QGIS to recreate the route that I walked based on the GPS coordinates of the photos I pulled in, as well as the GPS coordinates of the photos themselves. I used these coordinates to make a color-coded map of the locations of the pipes. I used Adobe Illustrator to simplify the maps visually. 
 * **Pandas & Jupyter:** I manually categorized pipe types by hand in QGIS. Then, I exported the attribute table from QGIS as a CSV into a very basic Jupyter notebook, which I used to get simple totals–like the number of pipes by type, and total pipes spotted.
 * **Datawrapper:** I brought those totals over to Datawrapper so that I could make really simple, almost joke analysis charts and bar graphs. 
 * **Pluto Data:** I also looked at the PLUTO data to pull in all the buildings that were taller than six stories to give a sense of scale for how many pipes there might actually be around the city.
