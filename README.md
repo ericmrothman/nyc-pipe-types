@@ -13,7 +13,7 @@ I ended up simply categorizing the pipes into different buckets based on their f
 ## Process and Tools
 
 * **QGIS & Illustrator:** I used QGIS to recreate the route that I walked based on the GPS coordinates of the photos I pulled in, as well as the GPS coordinates of the photos themselves. I used these coordinates to make a color-coded map of the locations of the pipes. I used Adobe Illustrator to simplify the maps visually. 
-* **Pandas & Jupyter:** In QGIS, I manually categorized pipe types and created counts per category per photo, as some photos contained multiple pipes. Then, I exported an attribute table from QGIS as a CSV into a very basic Jupyter notebook, which I used to get simple totals–like the total number of pipes by type, and total pipes spotted overall.
+* **Pandas & Jupyter:** In QGIS, I manually categorized pipe types and created counts per category per photo, as some photos contained multiple pipes. Then, I exported an attribute table from QGIS as a CSV into a very basic Jupyter notebook, where I used pandas to get simple totals–like the total number of pipes by type, and total pipes spotted overall.
 * **Datawrapper:** I brought those totals over to Datawrapper so that I could make really simple, almost joke analysis charts and bar graphs. 
 * **Pluto Data:** I also looked at the PLUTO data to pull in all the buildings that were taller than six stories to give a sense of scale for how many pipes there might actually be around the city.
 
