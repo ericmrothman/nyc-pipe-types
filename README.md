@@ -1,6 +1,6 @@
 # NYC Pipe Types
 
-This project started as a general curiosity about all the weird pipes sticking out of New York City. I had this thought that I could walk around, take pictures of pipes, and cross-reference GPS data with PLUTO data from New York City to get information about the closest building, including that building's age, number of floors, and permitting stuff. How might pipes differ between new buildings and old buildings, or tall and short buildings? Is the way we build stuff nowadays boring, pipeswise? Stuff like that!
+This project started with a curiosity about all the weird pipes sticking out of New York City. I had this thought that I could walk around, take pictures of pipes, and cross-reference GPS data with PLUTO data from New York City to get information about the closest building, including that building's age, number of floors, and permitting stuff. How might pipes differ between new buildings and old buildings, or tall and short buildings? Is the way we build stuff nowadays boring, pipeswise? Stuff like that!
 
 ## Data Gathering and a Pivot
 
