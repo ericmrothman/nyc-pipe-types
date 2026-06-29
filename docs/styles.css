@@ -19,6 +19,10 @@ html, body {
     color: #2C2C2C;
 }
 
+body {
+    width: 100vw;
+}
+
     .content {
         max-width: 640px;
         margin: 0 auto;
@@ -70,7 +74,7 @@ html, body {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 100vw;
+        width: 100%;
         margin: auto;
         text-align: center;
         flex-direction: column;
@@ -78,8 +82,8 @@ html, body {
 
     .header{
         margin-top:4rem;
-        width: 30rem;
-        max-width: 640px;
+        width: 100%;
+        max-width: 440px;
     }
 
     .full-width-img {
