@@ -5,8 +5,9 @@
 //
 // To make it a shared, live map:
 //   1. Create a Supabase project, open the SQL editor, run docs/supabase-pipes-setup.sql.
-//   2. Paste the project URL and the *anon public* key below (Settings -> API). The anon key is
-//      designed to be public; the row-level-security policies in the SQL file are what protect data.
+//   2. Paste the Project URL and the *publishable* key (sb_publishable_…) below, from Project Settings ->
+//      API Keys. (A legacy "anon" key, eyJ…, also works.) This key is designed to be public; the
+//      row-level-security policies in the SQL file are what protect the data. Never paste a secret key.
 window.PIPE_CONFIG = {
   supabaseUrl: '',
   supabaseAnonKey: '',

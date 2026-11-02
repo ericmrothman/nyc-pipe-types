@@ -154,7 +154,10 @@ async function resolveLocalModel(ref) {
 // ---------- Supabase over plain REST (no SDK, no build step) ----------
 function supabaseClient({ supabaseUrl, supabaseAnonKey, photoBucket = 'pipe-photos' }) {
   const base = supabaseUrl.replace(/\/+$/, '');
-  const headers = (extra = {}) => ({ apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}`, ...extra });
+  // Supabase's current publishable keys (sb_publishable_…) go only in the apikey header: they aren't JWTs,
+  // so sending one as a Bearer token fails JWT checks. Legacy anon keys (JWTs, "eyJ…") also go as Bearer.
+  const isJwt = /^eyJ/.test(supabaseAnonKey);
+  const headers = (extra = {}) => ({ apikey: supabaseAnonKey, ...(isJwt && { Authorization: `Bearer ${supabaseAnonKey}` }), ...extra });
   async function call(path, init = {}) {
     const res = await fetch(`${base}${path}`, { ...init, headers: headers(init.headers) });
     if (!res.ok) throw new Error(`Supabase ${res.status}: ${(await res.text()).slice(0, 200)}`);
