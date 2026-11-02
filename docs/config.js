@@ -9,7 +9,7 @@
 //      API Keys. (A legacy "anon" key, eyJ…, also works.) This key is designed to be public; the
 //      row-level-security policies in the SQL file are what protect the data. Never paste a secret key.
 window.PIPE_CONFIG = {
-  supabaseUrl: '',
-  supabaseAnonKey: '',
+  supabaseUrl: 'https://vzkoaosxknmfebgorxut.supabase.co',
+  supabaseAnonKey: 'sb_publishable_n33iboKfa2I5_WraeB8XYA_AqgaJO5c',
   photoBucket: 'pipe-photos',
 };
