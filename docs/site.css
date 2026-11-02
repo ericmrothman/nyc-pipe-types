@@ -1,0 +1,106 @@
+/* Shared by the story (index.html) and the Pipe Appreciation Portal (explore.html).
+   Design tokens and the site masthead live here and only here, so the two pages can't drift.
+   Load this before the page's own stylesheet. */
+
+:root {
+  /* paper & ink */
+  --paper: #DEDEDE;
+  --card: #F7F6F2;
+  --white: #FFFFFF;
+  --ink: #232220;
+  --ink-soft: #5E5C57;
+
+  /* the pipe palette: one colour per pipe type, also the story's rainbow */
+  --standpipe: #FF595E;
+  --oil: #FFCA3A;
+  --box: #8AC926;
+  --air: #1982C4;
+  --steam: #6A4C93;
+  --mystery: #FF924C;
+  --other: #2EC4B6;
+
+  --font-display: 'Darumadrop One', Georgia, serif;
+  --font-prose: 'Cardo', Georgia, serif;
+
+  --corner: 4px;
+  --line: 2px solid var(--ink);
+  --lift: 3px 3px 0 var(--ink); /* printed-offset shadow: reserved for things you can press */
+
+  --masthead-h: 58px;
+  --pad: 16px; /* the one spacing unit everything snaps to: edges, gutters, offsets */
+
+  /* Type scale: five sizes, nothing in between. */
+  --text-sm: 0.9rem;   /* coordinates, attributions, counters, badges */
+  --text-md: 1rem;     /* body, inputs, compact controls, card names, links */
+  --text-lg: 1.15rem;  /* standard buttons, field labels, captions, toasts, nav */
+  --text-xl: 1.45rem;  /* the two hero buttons, tabs, section headings */
+  --text-2xl: 2.1rem;  /* drawer titles */
+
+  /* Control heights: three tiers, every button sits on one. */
+  --control-sm: 36px;  /* quiet utilities: chips, clap counts, Show all pipes, Close, Delete */
+  --control: 42px;     /* standard buttons and inputs */
+  --control-lg: 56px;  /* the two heroes: + Post a pipe, Appreciate this pipe */
+}
+@media (max-width: 899px) { :root { --masthead-h: 52px; --control: 44px; } }
+
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---------- masthead: identical on both pages; the Portal adds its counter in the middle ---------- */
+.site-masthead {
+  box-sizing: border-box;
+  /* Three slots: brand | counter | nav. The outer two share the leftover space equally, so the counter
+     sits dead centre and the nav sits at the same right edge on every page (the story has no counter). */
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center;
+  column-gap: var(--pad);
+  width: 100%; height: var(--masthead-h); margin: 0;
+  padding: 0 var(--pad);
+  background: var(--ink); color: #fff;
+  text-align: left;
+  position: sticky; top: 0; z-index: 30;
+  min-width: 0;
+}
+/* grid-row: 1 on each, because the counter comes after the nav in the markup and would otherwise wrap. */
+.site-masthead > .masthead-brand { grid-row: 1; grid-column: 1; justify-self: start; }
+.site-masthead > .ticker { grid-row: 1; grid-column: 2; justify-self: center; }
+.site-masthead > .masthead-nav { grid-row: 1; grid-column: 3; justify-self: end; }
+.masthead-brand {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 4px 0; /* same box as the nav links, so brand and nav share one axis */
+  color: #fff; text-decoration: none; white-space: nowrap;
+  font-family: var(--font-display); font-size: 1.55rem; line-height: 1;
+}
+.masthead-brand:hover { text-decoration: none; }
+.brand-the, .brand-tail { font-size: 0.8em; }
+/* The rainbow uses the pipe colours, lifted a little so the darker two read on the black bar.
+   nth-of-type, so the line break used on phones (a <br>) doesn't knock the colour cycle out of step. */
+.brand-rainbow span:nth-of-type(5n+1) { color: var(--standpipe); }
+.brand-rainbow span:nth-of-type(5n+2) { color: var(--oil); }
+.brand-rainbow span:nth-of-type(5n+3) { color: var(--box); }
+.brand-rainbow span:nth-of-type(5n+4) { color: color-mix(in srgb, var(--air) 70%, white); }
+.brand-rainbow span:nth-of-type(5n+5) { color: color-mix(in srgb, var(--steam) 55%, white); }
+
+.masthead-nav { display: flex; gap: 18px; }
+.masthead-nav a {
+  color: rgba(255, 255, 255, 0.75); text-decoration: none; white-space: nowrap;
+  font-family: var(--font-display); font-size: var(--text-lg); line-height: 1;
+  padding: 4px 0;
+  border-top: 3px solid transparent; /* mirrors the underline so the word stays optically centred */
+  border-bottom: 3px solid transparent;
+}
+.masthead-nav a:hover { color: #fff; text-decoration: none; border-bottom-color: rgba(255, 255, 255, 0.4); }
+.masthead-nav a[aria-current="page"] { color: #fff; border-bottom-color: var(--oil); }
+
+/* Narrow desktops: "The" goes and the brand shrinks, so the counter keeps its dead-centre slot. */
+@media (max-width: 1199px) {
+  .masthead-brand { font-size: 1.3rem; }
+  .brand-the { display: none; }
+}
+
+@media (max-width: 899px) {
+  /* A phone can't fit the full name, a centred counter and About on one line, so the name stacks:
+     NYC PIPE in rainbow over "Appreciation Portal", and the counter centres between brand and nav. */
+  .site-masthead { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 10px; }
+  .masthead-brand { display: grid; gap: 2px; font-size: 1.15rem; line-height: 0.95; padding: 0; }
+  .brand-tail { font-size: 0.68em; }
+  .masthead-nav a { font-size: var(--text-md); }
+}

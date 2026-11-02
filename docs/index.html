@@ -2,16 +2,27 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>The Pipe Types of NYC</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cardo:ital,wght@0,400;0,700;1,400&family=Darumadrop+One&display=swap" rel="stylesheet">    
+    <link href="./site.css" rel="stylesheet">
     <link href="./styles.css" rel="stylesheet">
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
   </head>
   <body>
+    <header class="site-masthead">
+      <a class="masthead-brand" href="./explore.html" aria-label="The NYC Pipe Appreciation Portal">
+        <span class="brand-the" aria-hidden="true">The</span>
+        <span class="brand-rainbow" aria-hidden="true"><span>N</span><span>Y</span><span>C</span>&nbsp;<span>P</span><span>I</span><span>P</span><span>E</span></span>
+        <span class="brand-tail" aria-hidden="true">Appreciation Portal</span>
+      </a>
+      <nav class="masthead-nav" aria-label="Site">
+        <a href="./explore.html">Map</a>
+        <a href="./index.html" aria-current="page">About</a>
+      </nav>
+    </header>
     <header>
       <div class="header">
           <h1>The  
@@ -278,6 +289,12 @@
             ar>
             </model-viewer>
         </div>
+
+      <section class="story-handoff" aria-labelledby="handoff-title">
+        <h2 id="handoff-title">The Pipe Appreciation Portal</h2>
+        <p>One person can't raise the city's collective pipe appreciation metrics alone. Post a pipe from your block, appreciate pipes across the five boroughs, and help get our numbers up.</p>
+        <a class="handoff-cta" href="./explore.html">Enter the Portal →</a>
+      </section>
     </main>
 
     <footer class="footer">

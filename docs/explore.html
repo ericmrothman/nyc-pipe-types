@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>The NYC Pipe Appreciation Portal</title>
+    <meta name="description" content="Social media for pipes. Post a pipe from your block, appreciate pipes across the five boroughs, and help raise NYC&#39;s collective pipe appreciation metrics." />
+    <meta name="theme-color" content="#232220" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cardo:ital,wght@0,400;0,700;1,400&family=Darumadrop+One&display=swap" rel="stylesheet">
+    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+    <link href="./site.css" rel="stylesheet">
+    <link href="./explore.css" rel="stylesheet">
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script src="./config.js"></script>
+    <script type="module" src="./src/main.js"></script>
+  </head>
+  <body class="explore-page">
+    <header class="site-masthead">
+      <a class="masthead-brand" href="./explore.html" aria-label="The NYC Pipe Appreciation Portal">
+        <span class="brand-the" aria-hidden="true">The</span>
+        <span class="brand-rainbow" aria-hidden="true"><span>N</span><span>Y</span><span>C</span>&nbsp;<span>P</span><span>I</span><span>P</span><span>E</span></span>
+        <span class="brand-tail" aria-hidden="true">Appreciation Portal</span>
+      </a>
+      <nav class="masthead-nav" aria-label="Site">
+        <a href="./explore.html" aria-current="page">Map</a>
+        <a href="./index.html">About</a>
+      </nav>
+      <div class="ticker" role="img" aria-label="Over 0 pipes appreciated" data-ticker>
+        <span class="ticker-over">Over</span>
+        <span class="flaps" data-flaps></span>
+        <span class="ticker-tail"><span>Pipes</span> <span>Appreciated</span></span>
+      </div>
+    </header>
+
+    <div class="explore-grid">
+      <aside class="drawer" data-snap="peek" aria-label="Pipe details">
+        <div class="drawer-handle" role="button" tabindex="0" aria-label="Resize panel"><span></span></div>
+        <div class="drawer-body" data-drawer-body>
+          <div class="drawer-loading">Loading pipes…</div>
+        </div>
+      </aside>
+
+      <section class="map-stage" aria-label="Map of pipes">
+        <div id="map"></div>
+        <div class="map-key" data-map-obstacle data-map-key role="toolbar" aria-label="Show or hide pipe types"></div>
+        <div class="toast" data-toast role="status" aria-live="polite" hidden></div>
+        <div class="place-hover" data-hover hidden></div>
+        <button class="btn btn-sm map-fit" type="button" data-act="fit-all" data-map-obstacle title="Show every visible pipe">Show all pipes</button>
+      </section>
+    </div>
+
+    <div class="lightbox" data-lightbox role="dialog" aria-modal="true" aria-label="Full-size photo" hidden>
+      <button class="btn btn-sm lightbox-close" type="button" data-act="lightbox-close">Close</button>
+      <img alt="" data-lightbox-img>
+    </div>
+    <input type="file" accept="image/*,.glb,model/gltf-binary" hidden data-file-input>
+  </body>
+</html>
