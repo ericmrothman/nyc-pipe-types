@@ -939,6 +939,7 @@ const gestures = attachMapGestures(pipeMap.map, {
   candidatePx: () => (state.focus.kind === 'compose' ? pipeMap.candidatePx() : null),
   clampLngLat: pipeMap.clampLngLat,
   onPinTap: (id) => {
+    el.hover.hidden = true; // the selected pin's own label replaces the hover card
     if (state.focus.kind === 'inspect' && state.focus.pipeId === id) return;
     dispatch({ type: 'pipe/select', pipeId: id, from: 'map' });
   },
@@ -956,7 +957,9 @@ const gestures = attachMapGestures(pipeMap.map, {
     markCardHovered(hit ? hit.id : null);
     pipeMap.map.getCanvas().style.cursor = hit ? 'pointer' : '';
     const p = hit ? pipeById(state, hit.id) : null;
-    if (!p) { el.hover.hidden = true; return; }
+    // A selected pin already wears its own label on the map; a hover card on top would say it twice.
+    const selected = state.focus.kind === 'inspect' && hit && state.focus.pipeId === hit.id;
+    if (!p || selected) { el.hover.hidden = true; return; }
     el.hover.innerHTML = `<img src="${esc(p.photoUrl)}" alt=""><span>${shapeSvg(p.primaryType, 12)} ${esc(pipeTitle(p))}<br><small>👏 ${n(state.claps[p.id] ?? 0)}</small></span>`;
     el.hover.hidden = false;
     const W = el.stage.clientWidth;

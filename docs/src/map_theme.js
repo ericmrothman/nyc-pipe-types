@@ -74,7 +74,7 @@ export const PRESETS = Object.freeze({
     placeFont: 'Darumadrop One', waterFont: 'Cardo Italic', placeSize: 1.05, shadowOpacity: 0.55, shadowOffset: 3,
   }),
   crayon: theme('Crayon', 'Oil pastel on peach paper: green outlines, blue fills that miss their lines, striped water and parks.', {
-    colors: { land: '#F6DEC6', street: '#F6DEC6', edge: '#2CBF2C', water: '#BBCBF4', park: '#BBCBF4', roof: '#BBCBF4', roofEdge: '#2CBF2C', shadow: '#0E5C34', label: '#0E5C34', halo: '#F6DEC6', streetLabel: '#0E5C34', streetHalo: '#EEC6A2', waterLabel: '#0E5C34', parkLabel: '#0E5C34' },
+    colors: { land: '#F6DEC6', street: '#F6DEC6', edge: '#2CBF2C', water: '#BBCBF4', park: '#BBCBF4', roof: '#BBCBF4', roofEdge: '#2CBF2C', shadow: '#0E5C34', label: '#0E5C34', halo: '#F6DEC6', streetLabel: '#0E5C34', waterLabel: '#0E5C34', parkLabel: '#0E5C34' },
     placeFont: 'Open Sans Bold', streetFont: 'Cardo Bold', waterFont: 'Cardo Italic', // bold letters show the hand best
     placeSize: 1.15, streetSize: 1.05, streetWidth: 1.25, shadowOpacity: 0, shadowOffset: 0,
     hatch: true, fillOffset: 2.5, wobble: true, crayonPins: true,
