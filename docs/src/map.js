@@ -134,15 +134,17 @@ const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)'
  * Draws one pipe pin in its primary type's shape. A photo with a second kind of pipe gets that kind's
  * silhouette tucked on the upper-right rim; two or more of the same kind show as a twin behind it.
  */
-export function drawPipePin(ctx, pipe, x, y, r, { alpha = 1, emphasised = false } = {}) {
-  const stroke = emphasised ? INK : PIN_EDGE;
+const seedOf = (id) => { let h = 2166136261; for (const ch of id) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
+export function drawPipePin(ctx, pipe, x, y, r, { alpha = 1, emphasised = false, crayon = false } = {}) {
+  const base = seedOf(pipe.id);
+  const style = (n, extra = {}) => ({ stroke: emphasised ? INK : PIN_EDGE, emphasised, crayon: crayon ? base + n : null, ...extra });
   ctx.save();
   ctx.globalAlpha = alpha;
   const mixed = pipe.allTypes.length > 1;
   const several = !mixed && (pipe.counts[pipe.primaryType] || 1) > 1;
-  if (several) drawShape(ctx, pipe.primaryType, x + r * 0.48, y - r * 0.48, r * 0.9, { stroke });
-  drawShape(ctx, pipe.primaryType, x, y, r, { stroke });
-  if (mixed) drawShape(ctx, pipe.allTypes[1], x + r * 0.72, y - r * 0.72, Math.max(3, r * 0.58), { stroke, lineWidth: 1.25 });
+  if (several) drawShape(ctx, pipe.primaryType, x + r * 0.48, y - r * 0.48, r * 0.9, style(1));
+  drawShape(ctx, pipe.primaryType, x, y, r, style(2));
+  if (mixed) drawShape(ctx, pipe.allTypes[1], x + r * 0.72, y - r * 0.72, Math.max(3, r * 0.58), style(3, { lineWidth: 1.25 }));
   ctx.restore();
 }
 
@@ -244,6 +246,8 @@ export function createPipeMap(container, { getClaps, obstacleRoot, theme: initia
   const applyWobble = () => {
     if (theme.wobble) installWobbleFilter();
     container.classList.toggle('is-wobbly', Boolean(theme.wobble) && !theme.original);
+    container.classList.toggle('is-crayon-pins', Boolean(theme.crayonPins) && !theme.original);
+    map.triggerRepaint();
   };
   applyWobble();
   map.setStyle(STYLE_URL, { transformStyle: (_previous, next) => { rawStyle = next; return themedStyle(next, theme); }, localIdeographFontFamily: 'sans-serif' });
@@ -379,7 +383,7 @@ export function createPipeMap(container, { getClaps, obstacleRoot, theme: initia
       if (pt.x < -20 || pt.y < -20 || pt.x > canvas.width / dpr + 20 || pt.y > canvas.height / dpr + 20) continue;
       if (p.pipe.id === selectedId && !p.leaving) { selectedPin = { p, pt }; continue; }
       if (p.pipe.id === hoverId && !p.leaving) { hoverPin = { p, pt }; continue; }
-      drawPipePin(ctx, p.pipe, pt.x, pt.y, r, { alpha: a * (selectedId || candidate ? 0.8 : 1) });
+      drawPipePin(ctx, p.pipe, pt.x, pt.y, r, { alpha: a * (selectedId || candidate ? 0.8 : 1), crayon: theme.crayonPins });
     }
     if (hoverPin) {
       // Hovered (on the map, or via its card in the sidebar): a halo you can't miss when your eye jumps over.
@@ -390,7 +394,7 @@ export function createPipeMap(container, { getClaps, obstacleRoot, theme: initia
       ctx.fillStyle = 'rgba(255, 202, 58, 0.45)'; ctx.fill();
       ctx.lineWidth = 2; ctx.strokeStyle = INK; ctx.stroke();
       ctx.restore();
-      drawPipePin(ctx, p.pipe, pt.x, pt.y, R, { emphasised: true });
+      drawPipePin(ctx, p.pipe, pt.x, pt.y, R, { emphasised: true, crayon: theme.crayonPins });
       if (hoverCallout && !selectedPin) drawCallout(p.pipe, pt.x, pt.y, R);
     }
     if (selectedPin) {
@@ -402,7 +406,7 @@ export function createPipeMap(container, { getClaps, obstacleRoot, theme: initia
       ctx.beginPath(); ctx.arc(pt.x, pt.y, R + 9, 0, Math.PI * 2);
       ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.stroke();
       ctx.restore();
-      drawPipePin(ctx, p.pipe, pt.x, pt.y, R, { emphasised: true });
+      drawPipePin(ctx, p.pipe, pt.x, pt.y, R, { emphasised: true, crayon: theme.crayonPins });
       drawCallout(p.pipe, pt.x, pt.y, R);
     }
     if (candidate) {

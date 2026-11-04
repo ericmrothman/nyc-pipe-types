@@ -34,7 +34,7 @@ export function configDiff(cfg) {
 const COLOR_FIELDS = [
   ['land', 'Land'], ['street', 'Streets'], ['edge', 'Kerbs'], ['water', 'Water'], ['park', 'Parks'],
   ['roof', 'Roofs'], ['roofEdge', 'Roof edge'], ['shadow', 'Shadow'], ['label', 'Place labels'],
-  ['streetLabel', 'Street labels'], ['waterLabel', 'Water labels'], ['parkLabel', 'Park labels'], ['halo', 'Label halo'],
+  ['streetLabel', 'Street labels'], ['streetHalo', 'Street label halo'], ['waterLabel', 'Water labels'], ['parkLabel', 'Park labels'], ['halo', 'Label halo'],
 ];
 const SLIDERS = {
   placeSize: { label: 'Place text size', min: 0.6, max: 1.8, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%` },
@@ -89,6 +89,7 @@ function panelHtml() {
     <fieldset class="lab-group"><legend>Hand-made</legend>
       ${check('hatch', 'Crayon stripes in water &amp; parks')}
       ${check('wobble', 'Shaky hand (wobbly lines)')}
+      ${check('crayonPins', 'Crayon pins')}
       ${slider('fillOffset')}
     </fieldset>
     <fieldset class="lab-group"><legend>Labels</legend>

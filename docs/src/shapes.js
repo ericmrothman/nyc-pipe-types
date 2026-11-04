@@ -56,9 +56,50 @@ export function shapePath(shape, x, y, r) {
 export const hasCentreDot = (shape) => shape === 'boxdot';
 export const centreDotRadius = (r) => Math.max(1.2, r * 0.32);
 
-/** Draws a type's silhouette on a canvas. */
-export function drawShape(ctx, typeKey, x, y, r, { stroke = '#FFFFFF', lineWidth = 1.5 } = {}) {
+const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const darker = (h, t) => `rgb(${hexRgb(h).map((v) => Math.round(v * (1 - t))).join(',')})`;
+
+/**
+ * The Crayon theme's version of a silhouette: a darker crayon outline in the type's own colour, the
+ * fill slipping off it a little, flecks of paper showing through, and a slight tilt. `seed` keeps each
+ * pin's quirks the same from frame to frame.
+ */
+function drawCrayonShape(ctx, type, x, y, r, { seed, emphasised }) {
+  let s = (seed % 2147483646) + 1;
+  const rand = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate((rand() - 0.5) * 0.22);
+  const fill = new Path2D(shapePath(type.shape, r * 0.2, r * 0.14, r));
+  const edge = new Path2D(shapePath(type.shape, 0, 0, r));
+  ctx.fillStyle = type.color;
+  ctx.fill(fill);
+  ctx.save(); // flecks of paper: cut a few specks out of the fill
+  ctx.clip(fill);
+  ctx.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 7; i++) {
+    ctx.beginPath();
+    ctx.arc((rand() - 0.5) * r * 2, (rand() - 0.5) * r * 2, 0.4 + rand() * 0.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+  ctx.lineWidth = emphasised ? 2.6 : 2;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = emphasised ? INK : darker(type.color, 0.35);
+  ctx.stroke(edge);
+  if (hasCentreDot(type.shape)) {
+    ctx.beginPath();
+    ctx.arc(r * 0.1, r * 0.07, centreDotRadius(r), 0, Math.PI * 2);
+    ctx.fillStyle = INK;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** Draws a type's silhouette on a canvas. With `crayon` (a seed), it's drawn by hand. */
+export function drawShape(ctx, typeKey, x, y, r, { stroke = '#FFFFFF', lineWidth = 1.5, crayon = null, emphasised = false } = {}) {
   const type = TYPE_BY_KEY[typeKey] || TYPE_BY_KEY.mystery;
+  if (crayon != null) { drawCrayonShape(ctx, type, x, y, r, { seed: crayon, emphasised }); return; }
   const path = new Path2D(shapePath(type.shape, x, y, r));
   ctx.fillStyle = type.color;
   ctx.fill(path);

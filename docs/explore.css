@@ -475,5 +475,5 @@ input:focus, textarea:focus { outline: none; box-shadow: var(--lift); background
 }
 
 /* The Crayon theme's shaky hand: only the basemap wears it, so pins and callouts stay crisp. */
-.is-wobbly .maplibregl-canvas { filter: url(#crayon-wobble); }
-@media (prefers-reduced-motion: reduce) { .is-wobbly .maplibregl-canvas { filter: none; } }
+.is-wobbly .maplibregl-canvas, .is-wobbly.is-crayon-pins .map-overlay { filter: url(#crayon-wobble); }
+@media (prefers-reduced-motion: reduce) { .is-wobbly .maplibregl-canvas, .is-wobbly.is-crayon-pins .map-overlay { filter: none; } }

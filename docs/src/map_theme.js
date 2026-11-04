@@ -27,11 +27,16 @@ const BASE = Object.freeze({
   // Hand-made effects (the Crayon theme turns these on; any theme can):
   hatch: false,      // water and parks filled with crayon stripes instead of flat colour
   fillOffset: 0,     // px: water, park and roof fills slip off their outlines, like a careless crayon
-  wobble: false,     // the whole basemap drawn with a shaky hand (a screen filter; the pins stay crisp)
+  wobble: false,     // the whole basemap drawn with a shaky hand (a screen filter)
+  crayonPins: false, // pins drawn in crayon too (and, with wobble, by the same shaky hand)
   labels: { places: true, streets: true, parks: true, water: true },
 });
 
-const theme = (name, blurb, patch) => ({ name, blurb, ...BASE, ...patch, colors: { ...BASE.colors, ...patch.colors }, labels: { ...BASE.labels, ...patch.labels } });
+const theme = (name, blurb, patch) => {
+  const colors = { ...BASE.colors, ...patch.colors };
+  colors.streetHalo ||= colors.street; // street names sit in a halo of the street's own colour unless a theme says otherwise
+  return { name, blurb, ...BASE, ...patch, colors, labels: { ...BASE.labels, ...patch.labels } };
+};
 
 export const PRESETS = Object.freeze({
   editorial: theme('Clean Editorial', 'Quiet paper, white streets, soft roofs. Gets out of the pins’ way.', {}),
@@ -69,10 +74,10 @@ export const PRESETS = Object.freeze({
     placeFont: 'Darumadrop One', waterFont: 'Cardo Italic', placeSize: 1.05, shadowOpacity: 0.55, shadowOffset: 3,
   }),
   crayon: theme('Crayon', 'Oil pastel on peach paper: green outlines, blue fills that miss their lines, striped water and parks.', {
-    colors: { land: '#F6DEC6', street: '#F6DEC6', edge: '#2CBF2C', water: '#BBCBF4', park: '#BBCBF4', roof: '#BBCBF4', roofEdge: '#2CBF2C', shadow: '#0E5C34', label: '#0E5C34', halo: '#F6DEC6', streetLabel: '#0E5C34', waterLabel: '#0E5C34', parkLabel: '#0E5C34' },
-    placeFont: 'Darumadrop One', streetFont: 'Darumadrop One', waterFont: 'Darumadrop One',
+    colors: { land: '#F6DEC6', street: '#F6DEC6', edge: '#2CBF2C', water: '#BBCBF4', park: '#BBCBF4', roof: '#BBCBF4', roofEdge: '#2CBF2C', shadow: '#0E5C34', label: '#0E5C34', halo: '#F6DEC6', streetLabel: '#0E5C34', streetHalo: '#EEC6A2', waterLabel: '#0E5C34', parkLabel: '#0E5C34' },
+    placeFont: 'Open Sans Bold', streetFont: 'Cardo Bold', waterFont: 'Cardo Italic', // bold letters show the hand best
     placeSize: 1.15, streetSize: 1.05, streetWidth: 1.25, shadowOpacity: 0, shadowOffset: 0,
-    hatch: true, fillOffset: 2.5, wobble: true,
+    hatch: true, fillOffset: 2.5, wobble: true, crayonPins: true,
   }),
   positron: { ...theme('Original Positron', 'CARTO’s map as it comes, for comparison.', {}), original: true },
 });
@@ -245,7 +250,7 @@ export function zineStyle(raw, cfg = resolveTheme()) {
       if (id === 'roadname_minor') l.minzoom = 15;
       show(l, cfg.labels.streets);
       label(l, {
-        font: cfg.streetFont, color: c.streetLabel, halo: c.street, haloWidth: cfg.haloWidth, blur: 0.4,
+        font: cfg.streetFont, color: c.streetLabel, halo: c.streetHalo || c.street, haloWidth: cfg.haloWidth, blur: 0.4,
         transform: 'none', spacing: 0.01,
         size: scaleZoomValue(id === 'roadname_minor' ? MINOR_STREET_SIZE : MAIN_STREET_SIZE, cfg.streetSize),
       });
