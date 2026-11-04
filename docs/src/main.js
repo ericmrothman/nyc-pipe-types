@@ -54,7 +54,6 @@ const el = {
   ticker: $('[data-ticker]'),
   key: $('[data-map-key]'),
   toast: $('[data-toast]'),
-  hover: $('[data-hover]'),
   lightbox: $('[data-lightbox]'),
   lightboxImg: $('[data-lightbox-img]'),
   file: $('[data-file-input]'),
@@ -935,24 +934,47 @@ el.body.addEventListener('pointerout', (e) => {
 
 // ---------------------------------------------------------------- the hand-held print
 /**
- * Hovering a pin shows its photo as a print held up in the map's bottom-right corner, the way a
- * friend beside you would hold one up: it swings in on an arc from below-right (a low pivot, the wrist
- * cocked back), overshoots a hair and settles, each time at its own slightly different spot and angle.
- * Moving to another pin drops the old print away (the wrist tips and falls, no rewind) while the new
- * one comes in. A 45ms grace period means sweeping across the gap between two pins is one clean swap.
+ * Hovering a pin shows its photo as a print held up the way a friend beside you would hold one up:
+ * it swings in on an arc, overshoots a hair and settles, each time at its own slightly different
+ * spot and angle, and drops away (the wrist tips and falls, no rewind) when you move on.
+ *
+ * Where it's held:
+ *  - nothing open: from the bottom-right, hanging off the map's corner (the hand is out of frame);
+ *  - a pipe open: from the left, landing over that pipe's photo in the panel, for comparing.
+ * Click the pin and the print *becomes* the photo: it straightens, loses its white frame and settles
+ * onto the photo's spot as the panel switches to that pipe.
+ *
+ * Prints live in their own layer over the whole page (under the masthead), click-through always.
  */
-function createPolaroid(box) {
-  let current = null; // { id, el, pose }
+function createPolaroid(layer) {
+  let current = null; // { id, el, pose, mode }
   let lastTilt = 0;
   let hideTimer = 0;
+  let token = 0;
   const rnd = (a, b) => a + Math.random() * (b - a);
   const rest = (q) => `translate3d(${q.rx}px, ${q.ry}px, 0) rotate(${q.tilt}deg)`;
-  function pose() {
+  const layerRect = () => layer.getBoundingClientRect();
+
+  function pose(mode) {
     let tilt;
     do tilt = rnd(-6.5, 5.5); while (Math.abs(tilt - lastTilt) < 2.5 || Math.abs(tilt) < 0.8);
     lastTilt = tilt;
-    return { tilt, rx: rnd(-14, 10), ry: rnd(-10, 8), ex: rnd(100, 150), ey: rnd(320, 360) };
+    return mode === 'photo'
+      // from the left: the wrist is cocked the other way and the arc comes up from below-left
+      ? { tilt, rx: rnd(-12, 12), ry: rnd(-10, 10), ex: -rnd(420, 520), ey: rnd(140, 220), er: tilt - 16 - rnd(0, 6), dx: -300, dy: 220, dr: tilt - 14 }
+      : { tilt, rx: rnd(-14, 10), ry: rnd(-10, 8), ex: rnd(100, 150), ey: rnd(320, 360), er: tilt + 16 + rnd(0, 6), dx: 85, dy: 340, dr: tilt + 14 };
   }
+
+  /** The open pipe's photo (or 3D view) in the panel, if enough of it is on screen to cover. */
+  function panelMedia() {
+    if (state.focus.kind !== 'inspect') return null;
+    const m = $('.inspect .media', el.body);
+    if (!m) return null;
+    const r = m.getBoundingClientRect(); const L = layerRect();
+    const visible = Math.min(r.bottom, L.bottom) - Math.max(r.top, L.top);
+    return r.width > 0 && visible > 120 ? r : null;
+  }
+
   function drop(card) {
     if (!card) return;
     const { el: c, pose: q } = card;
@@ -961,42 +983,105 @@ function createPolaroid(box) {
     c.getAnimations().forEach((a) => a.cancel());
     const out = c.animate([
       { transform: from === 'none' ? rest(q) : from },
-      { transform: `translate3d(${q.rx + 85}px, 340px, 0) rotate(${q.tilt + 14}deg)` },
+      { transform: `translate3d(${q.rx + q.dx}px, ${q.dy}px, 0) rotate(${q.dr}deg)` },
     ], { duration: 150, easing: 'cubic-bezier(0.45, 0, 0.85, 0.3)', fill: 'forwards' });
     out.onfinish = () => c.remove();
   }
-  return {
-    show(p) {
-      clearTimeout(hideTimer);
-      box.hidden = false;
-      if (current && current.id === p.id) return;
-      drop(current);
-      const q = pose();
-      const c = document.createElement('figure');
-      c.className = 'polaroid';
-      c.dataset.tilt = q.tilt.toFixed(2);
-      c.innerHTML = `<img src="${esc(p.photoUrl)}" alt="">
-        <figcaption class="polaroid-caption"><span class="shapes">${p.allTypes.map((t) => shapeSvg(t, 14)).join('')}</span>
-        <span class="polaroid-title">${esc(pipeTitle(p))}</span><span class="polaroid-claps">👏 ${n(state.claps[p.id] ?? 0)}</span></figcaption>`;
-      c.style.transform = rest(q);
-      box.append(c);
-      if (!reducedMotion()) {
-        c.animate([
-          { transform: `translate3d(${q.ex}px, ${q.ey}px, 0) rotate(${q.tilt + 16 + rnd(0, 6)}deg)` },
-          { transform: rest(q) },
-        ], { duration: 220, easing: 'cubic-bezier(0.2, 1.22, 0.32, 1)' });
-      }
-      current = { id: p.id, el: c, pose: q };
-    },
-    hide({ instant = false } = {}) {
-      clearTimeout(hideTimer);
-      if (instant) { box.querySelectorAll('.polaroid').forEach((c) => c.remove()); current = null; return; }
-      hideTimer = setTimeout(() => { drop(current); current = null; }, 45);
-    },
-  };
+
+  async function show(p) {
+    clearTimeout(hideTimer);
+    const media = panelMedia();
+    const mode = media ? 'photo' : 'corner';
+    if (current && current.id === p.id && current.mode === mode) return;
+    drop(current);
+    current = null;
+    const my = ++token;
+    const q = pose(mode);
+    const c = document.createElement('figure');
+    c.className = `polaroid is-${mode}`;
+    c.dataset.tilt = q.tilt.toFixed(2);
+    c.dataset.id = p.id;
+    c.innerHTML = `<img src="${esc(p.photoUrl)}" alt="">
+      <figcaption class="polaroid-caption"><span class="shapes">${p.allTypes.map((t) => shapeSvg(t, 14)).join('')}</span>
+      <span class="polaroid-title">${esc(pipeTitle(p))}</span><span class="polaroid-claps">👏 ${n(state.claps[p.id] ?? 0)}</span></figcaption>`;
+    c.style.visibility = 'hidden';
+    if (mode === 'photo') c.style.width = `${Math.round(media.width + 24)}px`;
+    layer.append(c);
+    current = { id: p.id, el: c, pose: q, mode };
+    if (mode === 'photo') await $('img', c).decode().catch(() => {}); // its height decides where it lands
+    if (my !== token || !c.isConnected) return;
+    const L = layerRect(); const W = c.offsetWidth; const H = c.offsetHeight;
+    if (mode === 'photo') {
+      const img = $('img', c);
+      // photo centre over photo centre
+      c.style.left = `${media.left + media.width / 2 - W / 2 - L.left}px`;
+      c.style.top = `${media.top + media.height / 2 - (img.offsetTop + img.offsetHeight / 2) - L.top}px`;
+    } else {
+      const stage = el.stage.getBoundingClientRect();
+      c.style.left = `${stage.right - W + 46 - L.left}px`;
+      c.style.top = `${stage.bottom - H + 50 - L.top}px`;
+    }
+    c.style.transform = rest(q);
+    c.style.visibility = '';
+    if (!reducedMotion()) {
+      c.animate([
+        { transform: `translate3d(${q.ex}px, ${q.ey}px, 0) rotate(${q.er}deg)` },
+        { transform: rest(q) },
+      ], { duration: mode === 'photo' ? 280 : 220, easing: 'cubic-bezier(0.2, 1.22, 0.32, 1)' });
+    }
+  }
+
+  /**
+   * The held print turns into the panel's photo of the pipe just opened. Call right after the
+   * panel has switched. Returns false when there was no print of that pipe to turn.
+   */
+  function become(id) {
+    clearTimeout(hideTimer);
+    if (!current || current.id !== id) { hide({ instant: true }); return false; }
+    const card = current;
+    current = null;
+    token++;
+    const c = card.el;
+    c.classList.add('is-becoming');
+    const frame = $('.inspect .photo-frame:not([hidden]) .photo-button img', el.body) || $('.inspect .model-frame', el.body);
+    if (!frame || reducedMotion()) { c.remove(); return false; }
+    frame.style.visibility = 'hidden';
+    // No waiting for the panel's photo to load: only its left edge, top and width matter, and those are known.
+    const T = frame.getBoundingClientRect();
+    const img = $('img', c);
+    const L = layerRect();
+    const cardLeft = c.offsetLeft + L.left; const cardTop = c.offsetTop + L.top;
+    const W = c.offsetWidth; const H = c.offsetHeight;
+    const ox = W * 0.75; const oy = H * 1.3; // the card's transform-origin (75% 130%)
+    const s = T.width / img.offsetWidth;
+    const tx = T.left - cardLeft - ox - s * (img.offsetLeft - ox);
+    const ty = T.top - cardTop - oy - s * (img.offsetTop - oy);
+    const from = getComputedStyle(c).transform;
+    c.getAnimations().forEach((a) => a.cancel());
+    const ease = { duration: 380, easing: 'cubic-bezier(0.2, 0.9, 0.25, 1)', fill: 'forwards' };
+    $('.polaroid-caption', c).animate([{ opacity: 1 }, { opacity: 0 }], { ...ease, duration: 160 });
+    img.animate([{ borderColor: 'rgba(35, 34, 32, 1)' }, { borderColor: 'rgba(35, 34, 32, 0)' }], ease);
+    const morph = c.animate([
+      { transform: from === 'none' ? rest(card.pose) : from },
+      { transform: `translate(${tx}px, ${ty}px) scale(${s})`, backgroundColor: 'rgba(255, 255, 255, 0)', borderColor: 'rgba(35, 34, 32, 0)', boxShadow: '0 0 0 rgba(35, 34, 32, 0)' },
+    ], ease);
+    morph.finished.catch(() => {}).then(() => { frame.style.visibility = ''; c.remove(); });
+    return true;
+  }
+
+  function hide({ instant = false } = {}) {
+    clearTimeout(hideTimer);
+    if (instant) { token++; layer.querySelectorAll('.polaroid:not(.is-becoming)').forEach((c) => c.remove()); current = null; return; }
+    hideTimer = setTimeout(() => { drop(current); current = null; }, 45);
+  }
+
+  return { show, hide, become, holding: (id) => Boolean(current && current.id === id) };
 }
-const polaroid = createPolaroid(el.hover);
-el.hover.hidden = false;
+const printLayer = document.createElement('div');
+printLayer.className = 'print-layer';
+printLayer.setAttribute('aria-hidden', 'true');
+document.body.append(printLayer);
+const polaroid = createPolaroid(printLayer);
 
 // ---------------------------------------------------------------- map gestures
 const gestures = attachMapGestures(pipeMap.map, {
@@ -1004,9 +1089,11 @@ const gestures = attachMapGestures(pipeMap.map, {
   candidatePx: () => (state.focus.kind === 'compose' ? pipeMap.candidatePx() : null),
   clampLngLat: pipeMap.clampLngLat,
   onPinTap: (id) => {
-    polaroid.hide({ instant: true }); // the selected pin's own label replaces the print
-    if (state.focus.kind === 'inspect' && state.focus.pipeId === id) return;
+    if (state.focus.kind === 'inspect' && state.focus.pipeId === id) { polaroid.hide({ instant: true }); return; }
+    const held = polaroid.holding(id);
     dispatch({ type: 'pipe/select', pipeId: id, from: 'map' });
+    // The print being held up for this pin turns into the panel's photo of it.
+    if (held) polaroid.become(id); else polaroid.hide({ instant: true });
   },
   onEmptyTap: (ll) => {
     // Tapping the map only moves the pin when there was no photo GPS to lose.

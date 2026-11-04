@@ -384,15 +384,14 @@ input:focus, textarea:focus { outline: none; box-shadow: var(--lift); background
 /* Hovering a pin: someone beside you holds its print up in the bottom-right corner.
    Each card swings in on an arc from below-right, lands a little askew, and drops away when you move on.
    The motion lives in main.js (createPolaroid); this is the print itself. */
-.place-hover {
-  /* Hangs off the map's bottom-right corner (the stage clips it), so the bottom of the print, where a
-     hand would be holding it, is out of frame. */
-  position: absolute; right: -46px; bottom: -50px; z-index: 3;
-  width: 300px; height: 372px;
-  pointer-events: none;
+.print-layer {
+  /* Over the panel and the map, under the masthead; it clips at the window's edges, so a print held
+     from the corner hangs off it with the hand out of frame. */
+  position: fixed; left: 0; right: 0; bottom: 0; top: var(--masthead-h); z-index: 20;
+  overflow: hidden; pointer-events: none;
 }
 .polaroid {
-  position: absolute; right: 0; bottom: 0;
+  position: absolute; left: 0; top: 0; margin: 0;
   width: 300px; padding: 10px 10px 62px; /* the deep bottom margin a thumb holds */
   background: var(--white); border: var(--line); box-shadow: 4px 4px 0 var(--ink);
   transform-origin: 75% 130%; /* a low pivot: the card swings from the wrist */
@@ -403,7 +402,9 @@ input:focus, textarea:focus { outline: none; box-shadow: var(--lift); background
 .polaroid-caption .shapes { display: inline-flex; gap: 3px; flex: none; }
 .polaroid-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .polaroid-claps { flex: none; font-variant-numeric: tabular-nums; color: var(--ink-soft); }
-@media (max-width: 899px) { .place-hover { display: none; } }
+/* Held over the open pipe's photo: the print takes the photo's own proportions. */
+.polaroid.is-photo img { aspect-ratio: auto; height: auto; }
+@media (max-width: 899px) { .print-layer { display: none; } }
 
 /* MapLibre's zoom buttons, on the compact tier. */
 .maplibregl-ctrl-group { border-radius: var(--corner) !important; border: var(--line) !important; box-shadow: 2px 2px 0 var(--ink) !important; }
