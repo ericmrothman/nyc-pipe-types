@@ -933,13 +933,78 @@ el.body.addEventListener('pointerout', (e) => {
   if (card && !card.contains(e.relatedTarget)) pipeMap.setHover(null);
 });
 
+// ---------------------------------------------------------------- the hand-held print
+/**
+ * Hovering a pin shows its photo as a print held up in the map's bottom-right corner, the way a
+ * friend beside you would hold one up: it swings in on an arc from below-right (a low pivot, the wrist
+ * cocked back), overshoots a hair and settles, each time at its own slightly different spot and angle.
+ * Moving to another pin drops the old print away (the wrist tips and falls, no rewind) while the new
+ * one comes in. A 45ms grace period means sweeping across the gap between two pins is one clean swap.
+ */
+function createPolaroid(box) {
+  let current = null; // { id, el, pose }
+  let lastTilt = 0;
+  let hideTimer = 0;
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const rest = (q) => `translate3d(${q.rx}px, ${q.ry}px, 0) rotate(${q.tilt}deg)`;
+  function pose() {
+    let tilt;
+    do tilt = rnd(-6.5, 5.5); while (Math.abs(tilt - lastTilt) < 2.5 || Math.abs(tilt) < 0.8);
+    lastTilt = tilt;
+    return { tilt, rx: rnd(-14, 10), ry: rnd(-10, 8), ex: rnd(80, 120), ey: rnd(230, 260) };
+  }
+  function drop(card) {
+    if (!card) return;
+    const { el: c, pose: q } = card;
+    if (reducedMotion()) { c.remove(); return; }
+    const from = getComputedStyle(c).transform; // wherever it is now, even mid-entrance
+    c.getAnimations().forEach((a) => a.cancel());
+    const out = c.animate([
+      { transform: from === 'none' ? rest(q) : from },
+      { transform: `translate3d(${q.rx + 65}px, 240px, 0) rotate(${q.tilt + 14}deg)` },
+    ], { duration: 150, easing: 'cubic-bezier(0.45, 0, 0.85, 0.3)', fill: 'forwards' });
+    out.onfinish = () => c.remove();
+  }
+  return {
+    show(p) {
+      clearTimeout(hideTimer);
+      box.hidden = false;
+      if (current && current.id === p.id) return;
+      drop(current);
+      const q = pose();
+      const c = document.createElement('figure');
+      c.className = 'polaroid';
+      c.dataset.tilt = q.tilt.toFixed(2);
+      c.innerHTML = `<img src="${esc(p.photoUrl)}" alt="">
+        <figcaption class="polaroid-caption"><span class="shapes">${p.allTypes.map((t) => shapeSvg(t, 14)).join('')}</span>
+        <span class="polaroid-title">${esc(pipeTitle(p))}</span><span class="polaroid-claps">👏 ${n(state.claps[p.id] ?? 0)}</span></figcaption>`;
+      c.style.transform = rest(q);
+      box.append(c);
+      if (!reducedMotion()) {
+        c.animate([
+          { transform: `translate3d(${q.ex}px, ${q.ey}px, 0) rotate(${q.tilt + 16 + rnd(0, 6)}deg)` },
+          { transform: rest(q) },
+        ], { duration: 220, easing: 'cubic-bezier(0.2, 1.22, 0.32, 1)' });
+      }
+      current = { id: p.id, el: c, pose: q };
+    },
+    hide({ instant = false } = {}) {
+      clearTimeout(hideTimer);
+      if (instant) { box.querySelectorAll('.polaroid').forEach((c) => c.remove()); current = null; return; }
+      hideTimer = setTimeout(() => { drop(current); current = null; }, 45);
+    },
+  };
+}
+const polaroid = createPolaroid(el.hover);
+el.hover.hidden = false;
+
 // ---------------------------------------------------------------- map gestures
 const gestures = attachMapGestures(pipeMap.map, {
   pinsPx: () => (state.focus.kind === 'compose' ? [] : pipeMap.pinsPx()),
   candidatePx: () => (state.focus.kind === 'compose' ? pipeMap.candidatePx() : null),
   clampLngLat: pipeMap.clampLngLat,
   onPinTap: (id) => {
-    el.hover.hidden = true; // the selected pin's own label replaces the hover card
+    polaroid.hide({ instant: true }); // the selected pin's own label replaces the print
     if (state.focus.kind === 'inspect' && state.focus.pipeId === id) return;
     dispatch({ type: 'pipe/select', pipeId: id, from: 'map' });
   },
@@ -959,12 +1024,8 @@ const gestures = attachMapGestures(pipeMap.map, {
     const p = hit ? pipeById(state, hit.id) : null;
     // A selected pin already wears its own label on the map; a hover card on top would say it twice.
     const selected = state.focus.kind === 'inspect' && hit && state.focus.pipeId === hit.id;
-    if (!p || selected) { el.hover.hidden = true; return; }
-    el.hover.innerHTML = `<img src="${esc(p.photoUrl)}" alt=""><span>${shapeSvg(p.primaryType, 12)} ${esc(pipeTitle(p))}<br><small>👏 ${n(state.claps[p.id] ?? 0)}</small></span>`;
-    el.hover.hidden = false;
-    const W = el.stage.clientWidth;
-    const left = Math.min(W - 190, Math.max(8, hit.x + 14));
-    el.hover.style.transform = `translate(${left}px, ${Math.max(8, hit.y - 70)}px)`;
+    if (!p || selected) { polaroid.hide(); return; }
+    polaroid.show(p);
   },
   onCandidateHover: (over) => { if (over) pipeMap.map.getCanvas().style.cursor = 'grab'; },
   onCandidateDrag: (ll) => dispatch({ type: 'compose/move', lat: ll.lat, lng: ll.lng }),

@@ -381,17 +381,27 @@ input:focus, textarea:focus { outline: none; box-shadow: var(--lift); background
 .is-placing .map-fit { display: none; }
 @media (max-width: 899px) { .map-fit { display: none; } }
 
+/* Hovering a pin: someone beside you holds its print up in the bottom-right corner.
+   Each card swings in on an arc from below-right, lands a little askew, and drops away when you move on.
+   The motion lives in main.js (createPolaroid); this is the print itself. */
 .place-hover {
-  position: absolute; left: 0; top: 0; z-index: 3;
-  display: flex; gap: 8px; align-items: center;
-  width: 190px; padding: 6px;
-  background: var(--white); border: var(--line); box-shadow: var(--lift);
+  position: absolute; right: 24px; bottom: 28px; z-index: 3;
+  width: 224px; height: 262px;
   pointer-events: none;
-  font-family: var(--font-display); font-size: var(--text-md); line-height: 1.1;
 }
-.place-hover img { width: 48px; height: 48px; object-fit: cover; flex: none; }
-.place-hover small { font-size: var(--text-sm); color: var(--ink-soft); }
-.place-hover .shape { display: inline-block; vertical-align: -2px; }
+.polaroid {
+  position: absolute; right: 0; bottom: 0;
+  width: 224px; padding: 8px 8px 10px;
+  background: var(--white); border: var(--line); box-shadow: 4px 4px 0 var(--ink);
+  transform-origin: 75% 130%; /* a low pivot: the card swings from the wrist */
+  will-change: transform;
+}
+.polaroid img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border: 1.5px solid var(--ink); background: var(--card); }
+.polaroid-caption { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-family: var(--font-display); font-size: var(--text-md); line-height: 1.1; }
+.polaroid-caption .shapes { display: inline-flex; gap: 3px; flex: none; }
+.polaroid-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.polaroid-claps { flex: none; font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+@media (max-width: 899px) { .place-hover { display: none; } }
 
 /* MapLibre's zoom buttons, on the compact tier. */
 .maplibregl-ctrl-group { border-radius: var(--corner) !important; border: var(--line) !important; box-shadow: 2px 2px 0 var(--ink) !important; }
