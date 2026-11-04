@@ -44,6 +44,7 @@ const SLIDERS = {
   streetWidth: { label: 'Street width', min: 0.5, max: 1.8, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%` },
   shadowOpacity: { label: 'Shadow strength', min: 0, max: 0.7, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%` },
   shadowOffset: { label: 'Shadow offset', min: 0, max: 8, step: 0.5, fmt: (v) => `${v} px` },
+  fillOffset: { label: 'Fill misses its lines by', min: 0, max: 6, step: 0.5, fmt: (v) => `${v} px` },
 };
 
 const slider = (k) => {
@@ -84,6 +85,11 @@ function panelHtml() {
       ${check('buildings', 'Show buildings')}
       ${check('roofOutline', 'Outline roofs')}
       ${slider('shadowOpacity')}${slider('shadowOffset')}
+    </fieldset>
+    <fieldset class="lab-group"><legend>Hand-made</legend>
+      ${check('hatch', 'Crayon stripes in water &amp; parks')}
+      ${check('wobble', 'Shaky hand (wobbly lines)')}
+      ${slider('fillOffset')}
     </fieldset>
     <fieldset class="lab-group"><legend>Labels</legend>
       <div class="lab-checks">${check('labels.places', 'Neighbourhoods')}${check('labels.streets', 'Streets')}${check('labels.parks', 'Parks')}${check('labels.water', 'Water')}</div>

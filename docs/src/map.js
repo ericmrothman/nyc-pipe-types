@@ -3,7 +3,7 @@
 
 import { NYC_BOUNDS, WALK_CENTER, WALK_ZOOM, TYPE_BY_KEY } from './state.js';
 import { drawShape } from './shapes.js';
-import { zineStyle, resolveTheme } from './map_theme.js';
+import { zineStyle, resolveTheme, parseHatchId } from './map_theme.js';
 
 // ---------------------------------------------------------------- map theme
 // The theme every reader sees. Try the others live by adding ?lab to the Portal's URL (the Style Lab),
@@ -62,6 +62,49 @@ if (!globalThis.__zineGlyphs) {
     if (!res.ok) throw new Error(`Glyphs ${res.status}: ${stack} ${range}`);
     return { data: await res.arrayBuffer() };
   });
+}
+
+// ---------------------------------------------------------------- hand-made effects
+/**
+ * A tileable square of crayon stripes: the base colour with a little paper grain showing through,
+ * and wavering stripes of the line colour. Drawn at 2x for sharp screens.
+ */
+export function drawHatch({ base, line, dir }, size = 64) {
+  const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [br, bg, bb] = hex(base); const [lr, lg, lb] = hex(line);
+  const data = new Uint8ClampedArray(size * size * 4);
+  let seed = 7;
+  const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const gap = 16; // stripes 8 css px apart
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const along = dir === 'h' ? x : y; const across = dir === 'h' ? y : x;
+      // stripe centres waver with a period that divides the tile, so the pattern tiles seamlessly
+      const wave = 1.6 * Math.sin((2 * Math.PI * along) / size + (6 * Math.PI * across) / size) + 0.8 * Math.sin((6 * Math.PI * along) / size);
+      const d = Math.abs((((across + wave) % gap) + gap) % gap - gap / 2);
+      const grain = rand();
+      const inStripe = d < 1.7 + grain * 0.7 && grain > 0.08; // crayon skips: a few gaps in each stroke
+      const paper = grain < 0.06; // and a few specks of paper in the fill
+      const i = (y * size + x) * 4;
+      const [r, g, b] = inStripe ? [lr, lg, lb] : [br, bg, bb];
+      data.set([r, g, b, paper && !inStripe ? 150 : 255], i);
+    }
+  }
+  return { width: size, height: size, data };
+}
+
+let wobbleInstalled = false;
+/** The shaky hand: an SVG displacement filter the map canvas can wear (CSS: .is-wobbly). */
+function installWobbleFilter() {
+  if (wobbleInstalled) return;
+  wobbleInstalled = true;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
+  svg.innerHTML = `<filter id="crayon-wobble" x="-2%" y="-2%" width="104%" height="104%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.045" numOctaves="2" seed="11" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="3.2" xChannelSelector="R" yChannelSelector="G"/></filter>`;
+  document.body.append(svg);
 }
 
 /** Positron, themed, with its glyphs routed through the zine:// door. */
@@ -193,6 +236,16 @@ export function createPipeMap(container, { getClaps, obstacleRoot, theme: initia
   });
   let rawStyle = null;
   let theme = initialTheme || defaultTheme();
+  // Striped fills are drawn the first time a style asks for them, in whatever colours it names.
+  map.on('styleimagemissing', (e) => {
+    const spec = parseHatchId(e.id);
+    if (spec && !map.hasImage(e.id)) map.addImage(e.id, drawHatch(spec), { pixelRatio: 2 });
+  });
+  const applyWobble = () => {
+    if (theme.wobble) installWobbleFilter();
+    container.classList.toggle('is-wobbly', Boolean(theme.wobble) && !theme.original);
+  };
+  applyWobble();
   map.setStyle(STYLE_URL, { transformStyle: (_previous, next) => { rawStyle = next; return themedStyle(next, theme); }, localIdeographFontFamily: 'sans-serif' });
   map.touchZoomRotate.disableRotation();
   map.keyboard.disableRotation();
@@ -437,6 +490,7 @@ export function createPipeMap(container, { getClaps, obstacleRoot, theme: initia
     /** Re-inks the basemap in place (a style diff: no reload, the camera and pins stay put). */
     setTheme(next) {
       theme = next;
+      applyWobble();
       if (!rawStyle) return; // the base style hasn't arrived yet; it will be themed when it does
       const apply = () => map.setStyle(themedStyle(rawStyle, theme), { diff: true });
       if (map.style?._loaded) apply(); else map.once('style.load', apply);

@@ -24,6 +24,10 @@ const BASE = Object.freeze({
   placeSize: 1, streetSize: 1, placeSpacing: 0, haloWidth: 2,
   streetWidth: 1,
   buildings: true, shadowOpacity: 0.24, shadowOffset: 3, roofOutline: true,
+  // Hand-made effects (the Crayon theme turns these on; any theme can):
+  hatch: false,      // water and parks filled with crayon stripes instead of flat colour
+  fillOffset: 0,     // px: water, park and roof fills slip off their outlines, like a careless crayon
+  wobble: false,     // the whole basemap drawn with a shaky hand (a screen filter; the pins stay crisp)
   labels: { places: true, streets: true, parks: true, water: true },
 });
 
@@ -64,6 +68,12 @@ export const PRESETS = Object.freeze({
     colors: { land: '#232220', street: '#3A3835', edge: '#1A1918', water: '#2A3D48', park: '#2C3A30', roof: '#34322F', roofEdge: '#4A4743', shadow: '#000000', label: '#F2EFE8', halo: '#232220', streetLabel: '#B9B4AA', waterLabel: '#8FA9B5', parkLabel: '#9DB394' },
     placeFont: 'Darumadrop One', waterFont: 'Cardo Italic', placeSize: 1.05, shadowOpacity: 0.55, shadowOffset: 3,
   }),
+  crayon: theme('Crayon', 'Oil pastel on peach paper: green outlines, blue fills that miss their lines, striped water and parks.', {
+    colors: { land: '#F6DEC6', street: '#F6DEC6', edge: '#2CBF2C', water: '#BBCBF4', park: '#BBCBF4', roof: '#BBCBF4', roofEdge: '#2CBF2C', shadow: '#0E5C34', label: '#0E5C34', halo: '#F6DEC6', streetLabel: '#0E5C34', waterLabel: '#0E5C34', parkLabel: '#0E5C34' },
+    placeFont: 'Darumadrop One', streetFont: 'Darumadrop One', waterFont: 'Darumadrop One',
+    placeSize: 1.15, streetSize: 1.05, streetWidth: 1.25, shadowOpacity: 0, shadowOffset: 0,
+    hatch: true, fillOffset: 2.5, wobble: true,
+  }),
   positron: { ...theme('Original Positron', 'CARTO’s map as it comes, for comparison.', {}), original: true },
 });
 export const DEFAULT_PRESET = 'editorial';
@@ -78,6 +88,16 @@ export function resolveTheme(input = {}) {
 }
 
 // ---------------------------------------------------------------- helpers
+/**
+ * Name of a striped fill image: base colour, stripe colour, direction ('h' or 'v').
+ * The map draws the image on demand (map.js, styleimagemissing), so any colours work.
+ */
+export const hatchId = (base, line, dir) => `hatch-${base.replace('#', '').toLowerCase()}-${line.replace('#', '').toLowerCase()}-${dir}`;
+export const parseHatchId = (id) => {
+  const m = /^hatch-([0-9a-f]{6})-([0-9a-f]{6})-([hv])$/.exec(id);
+  return m && { base: `#${m[1]}`, line: `#${m[2]}`, dir: m[3] };
+};
+
 const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 /** Mixes two #RRGGBB colours (t = share of b). */
 export function mix(a, b, t) {
@@ -129,6 +149,14 @@ const MINOR_STREET_SIZE = { stops: [[15, 10.5], [16, 11.5], [18, 13]] };
 const MAIN_STREET_SIZE = { stops: [[13, 11], [15, 12], [17, 13.5]] };
 const WATER_SIZE = { stops: [[10, 11], [14, 13], [16, 15]] };
 
+/** A line layer tracing a fill layer's shapes: same source, same filter. */
+function outlineOf(fill, id, color, width, visible) {
+  const o = { id, type: 'line', source: fill.source, 'source-layer': fill['source-layer'], paint: { 'line-color': color, 'line-width': width }, layout: { 'line-join': 'round', visibility: visible ? 'visible' : 'none' } };
+  if (fill.filter) o.filter = fill.filter;
+  if (fill.minzoom != null) o.minzoom = fill.minzoom;
+  if (fill.maxzoom != null) o.maxzoom = fill.maxzoom;
+  return o;
+}
 const hide = (l) => { l.layout = { ...l.layout, visibility: 'none' }; };
 const show = (l, on) => { l.layout = { ...l.layout, visibility: on ? 'visible' : 'none' }; };
 
@@ -146,6 +174,15 @@ export function zineStyle(raw, cfg = resolveTheme()) {
   const s = structuredClone(raw);
   if (cfg.original) return s;
   const c = cfg.colors;
+  const outlines = []; // line layers added after their fills: the crisp edge a loose fill slips off
+  const handFill = (l, color, pattern) => {
+    Object.assign(l.paint, { 'fill-color': color, 'fill-opacity': 1 });
+    if (pattern) l.paint['fill-pattern'] = pattern; else delete l.paint['fill-pattern'];
+    if (cfg.fillOffset > 0) {
+      Object.assign(l.paint, { 'fill-translate': [cfg.fillOffset, cfg.fillOffset * 0.6], 'fill-translate-anchor': 'viewport' });
+      outlines.push({ after: l.id, layer: outlineOf(l, `${l.id}_outline`, c.edge, { stops: [[10, 0.8], [14, 1.6], [17, 2.6]] }, true) });
+    }
+  };
   for (const l of s.layers) {
     const id = l.id;
     l.paint = { ...l.paint };
@@ -157,11 +194,15 @@ export function zineStyle(raw, cfg = resolveTheme()) {
     if (geo?.width) l.paint['line-width'] = geo.width;
 
     if (l.type === 'background') l.paint['background-color'] = c.land;
+    else if (id === 'water_shadow' && l.type === 'fill' && (cfg.hatch || cfg.fillOffset > 0)) hide(l); // the outline does its job
     else if (id === 'water_shadow' && l.type === 'fill') {
       Object.assign(l.paint, { 'fill-color': mix(c.water, c.shadow, 0.28), 'fill-opacity': 1, 'fill-translate': [2, 2], 'fill-translate-anchor': 'viewport' });
-    } else if (/^water/.test(id) && l.type === 'fill') Object.assign(l.paint, { 'fill-color': c.water, 'fill-opacity': 1 });
+    } else if (/^water/.test(id) && l.type === 'fill') {
+      // The shirt's pocket: stripes across. The shirt's body (parks): stripes down.
+      handFill(l, c.water, cfg.hatch && hatchId(c.water, c.edge, 'h'));
+    }
     else if (/^waterway/.test(id) && l.type === 'line') l.paint['line-color'] = c.water;
-    else if (/^(park|landcover|landuse)/.test(id) && l.type === 'fill') Object.assign(l.paint, { 'fill-color': c.park, 'fill-opacity': 1 });
+    else if (/^(park|landcover|landuse)/.test(id) && l.type === 'fill') handFill(l, c.park, cfg.hatch && /^park/.test(id) && hatchId(c.park, c.edge, 'v'));
     else if (/^(road|bridge)_.*case/.test(id) && l.type === 'line') {
       l.paint['line-color'] = c.edge;
       l.paint['line-width'] = scaleZoomValue(l.paint['line-width'], cfg.streetWidth);
@@ -183,10 +224,14 @@ export function zineStyle(raw, cfg = resolveTheme()) {
     } else if (id === 'building-top' && l.type === 'fill') {
       l.minzoom = 13;
       show(l, cfg.buildings);
+      const loose = cfg.fillOffset > 0;
       Object.assign(l.paint, {
-        'fill-color': c.roof, 'fill-outline-color': cfg.roofOutline ? c.roofEdge : c.roof,
-        'fill-opacity': { stops: [[13, 0], [13.8, 1]] }, 'fill-translate': [0, 0],
+        // with a loose fill, the outline is its own line layer (below), so the fill gets none
+        'fill-color': c.roof, 'fill-outline-color': cfg.roofOutline && !loose ? c.roofEdge : c.roof,
+        'fill-opacity': { stops: [[13, 0], [13.8, 1]] },
+        'fill-translate': loose ? [cfg.fillOffset, cfg.fillOffset * 0.6] : [0, 0], 'fill-translate-anchor': 'viewport',
       });
+      if (loose && cfg.roofOutline) outlines.push({ after: id, layer: outlineOf(l, 'building_outline', c.roofEdge, { stops: [[14, 0.6], [16, 1.4], [18, 2.2]] }, cfg.buildings) });
     } else if (l.type === 'symbol' && /^(place_|poi_park)/.test(id)) {
       const park = id === 'poi_park';
       if (park) l.minzoom = 14;
@@ -217,6 +262,10 @@ export function zineStyle(raw, cfg = resolveTheme()) {
     const i = s.layers.findIndex((l) => l.id === a); const j = s.layers.findIndex((l) => l.id === b);
     if (i > j && j >= 0) s.layers.splice(j, 0, s.layers.splice(i, 1)[0]);
   };
+  for (const { after, layer } of outlines) {
+    const i = s.layers.findIndex((x) => x.id === after);
+    s.layers.splice(i + 1, 0, layer);
+  }
   before('water_shadow', 'water');
   before('building', 'building-top');
   return s;
