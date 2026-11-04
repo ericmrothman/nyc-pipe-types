@@ -951,7 +951,7 @@ function createPolaroid(box) {
     let tilt;
     do tilt = rnd(-6.5, 5.5); while (Math.abs(tilt - lastTilt) < 2.5 || Math.abs(tilt) < 0.8);
     lastTilt = tilt;
-    return { tilt, rx: rnd(-14, 10), ry: rnd(-10, 8), ex: rnd(80, 120), ey: rnd(230, 260) };
+    return { tilt, rx: rnd(-14, 10), ry: rnd(-10, 8), ex: rnd(100, 150), ey: rnd(320, 360) };
   }
   function drop(card) {
     if (!card) return;
@@ -961,7 +961,7 @@ function createPolaroid(box) {
     c.getAnimations().forEach((a) => a.cancel());
     const out = c.animate([
       { transform: from === 'none' ? rest(q) : from },
-      { transform: `translate3d(${q.rx + 65}px, 240px, 0) rotate(${q.tilt + 14}deg)` },
+      { transform: `translate3d(${q.rx + 85}px, 340px, 0) rotate(${q.tilt + 14}deg)` },
     ], { duration: 150, easing: 'cubic-bezier(0.45, 0, 0.85, 0.3)', fill: 'forwards' });
     out.onfinish = () => c.remove();
   }

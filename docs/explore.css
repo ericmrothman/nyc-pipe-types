@@ -385,19 +385,21 @@ input:focus, textarea:focus { outline: none; box-shadow: var(--lift); background
    Each card swings in on an arc from below-right, lands a little askew, and drops away when you move on.
    The motion lives in main.js (createPolaroid); this is the print itself. */
 .place-hover {
-  position: absolute; right: 24px; bottom: 28px; z-index: 3;
-  width: 224px; height: 262px;
+  /* Hangs off the map's bottom-right corner (the stage clips it), so the bottom of the print, where a
+     hand would be holding it, is out of frame. */
+  position: absolute; right: -46px; bottom: -50px; z-index: 3;
+  width: 300px; height: 372px;
   pointer-events: none;
 }
 .polaroid {
   position: absolute; right: 0; bottom: 0;
-  width: 224px; padding: 8px 8px 10px;
+  width: 300px; padding: 10px 10px 62px; /* the deep bottom margin a thumb holds */
   background: var(--white); border: var(--line); box-shadow: 4px 4px 0 var(--ink);
   transform-origin: 75% 130%; /* a low pivot: the card swings from the wrist */
   will-change: transform;
 }
 .polaroid img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border: 1.5px solid var(--ink); background: var(--card); }
-.polaroid-caption { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-family: var(--font-display); font-size: var(--text-md); line-height: 1.1; }
+.polaroid-caption { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-family: var(--font-display); font-size: var(--text-lg); line-height: 1.1; }
 .polaroid-caption .shapes { display: inline-flex; gap: 3px; flex: none; }
 .polaroid-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .polaroid-claps { flex: none; font-variant-numeric: tabular-nums; color: var(--ink-soft); }
