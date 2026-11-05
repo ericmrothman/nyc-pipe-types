@@ -19,6 +19,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const n = (x) => Number(x).toLocaleString('en-US');
+let prints = null; // the hanging prints and their strings (set up further down)
 const photoAspect = new Map(); // pipeId -> photo width / height, learned when a hover print's photo loads
 const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const dateFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -137,6 +138,7 @@ function choreographCamera(prev, action) {
 // ---------------------------------------------------------------- rendering
 function render(prev, action) {
   renderDrawer(prev);
+  prints?.kick(); // the open pipe's string follows the panel
   renderMap(prev, action);
   renderKey();
   renderTicker();
@@ -281,7 +283,7 @@ function inspectTemplate(p) {
     </div>` : ''}
     ${p.hasPhoto ? `
     <figure class="photo-frame" data-media-view="photo" ${p.modelUrl ? 'hidden' : ''}>
-      <button type="button" class="photo-button" data-act="lightbox" aria-label="Open full-size photo">
+      <button type="button" class="photo-button" data-act="lightbox" aria-label="Open full-size photo"><span class="tack" aria-hidden="true"></span>
         <img src="${esc(p.photoUrl)}" alt="${esc(p.note || pipeTitle(p))}" decoding="async"${photoAspect.has(p.id) ? ` style="aspect-ratio: ${photoAspect.get(p.id)}"` : ''}>
       </button>
     </figure>` : ''}
@@ -730,6 +732,7 @@ document.addEventListener('click', async (e) => {
       const view = t.dataset.view;
       $$('[data-act="media"]', el.body).forEach((b) => b.setAttribute('aria-selected', String(b.dataset.view === view)));
       $$('[data-media-view]', el.body).forEach((n) => { n.hidden = n.dataset.mediaView !== view; });
+      prints?.kick(); // no string while the 3D scan is showing
       break;
     }
     case 'nav': stepPipe(Number(t.dataset.step)); break;
@@ -933,196 +936,348 @@ el.body.addEventListener('pointerout', (e) => {
   if (card && !card.contains(e.relatedTarget)) pipeMap.setHover(null);
 });
 
-// ---------------------------------------------------------------- the hand-held print
+// ---------------------------------------------------------------- prints on a string
 /**
- * Hovering a pin shows its photo as a print held up the way a friend beside you would hold one up:
- * it swings in on an arc, overshoots a hair and settles, each time at its own slightly different
- * spot and angle, and drops away (the wrist tips and falls, no rewind) when you move on.
+ * Hovering a pin casts its photo out as a Polaroid hanging from a red thumbtack, tied back to the
+ * pin by a red string, right where the reader is looking. Clicking the pin lifts the print off the
+ * map and sets it down as the open pipe's Polaroid in the panel, carrying its end of the string with
+ * it; while a pipe is open, the string stays tied between its panel print and its pin, following the
+ * map as it pans and zooms. Desktop only (phones have no hover; the layer is hidden there).
  *
- * Where it's held:
- *  - nothing open: from below the map's bottom-right corner; only the blank bottom lip, where the
- *    hand would be, dips out of frame. Photo, name and claps are always in view.
- *  - a pipe open: from the left, landing over that pipe's photo (itself a Polaroid) for comparing,
- *    never past the window's left edge.
- * Click the pin and the print flies to the panel and lands as the open pipe's Polaroid: frame intact,
- * caption tucked away, straightened to the panel print's slight tilt. Prints keep each photo's own
- * proportions everywhere, and the panel reserves that shape before its photo loads, so nothing jumps.
+ * Where a print hangs: never inside a 75px halo around the hovered pin, so its neighbours stay
+ * visible and clickable. Of 8 compass pockets just outside the halo, it takes the one covering the
+ * fewest nearby pins (a pin 80px away costs far more than one 250px away), preferring pockets behind
+ * the pointer's direction of travel and, when moving between close pins, the pocket it's already in.
+ *
+ * Motion: the print swings from its tack (transform-origin 50% 10px). It casts out from the pin and
+ * settles with one pendulum overshoot; moving between close pins it glides (time proportional to
+ * distance) and its bottom lags behind the tack; it leaves quicker than it came. Clicked, it lifts on
+ * a small arc and lands frame-for-frame on the panel print. The string sags like string, and its curve
+ * trails a fast-moving end.
  */
-function createPolaroid(layer) {
-  let current = null; // { id, el, pose, mode }
+const TACK_Y = 10;            // the tack's height on a print, and the pivot it swings from
+const HALO = 75;              // px kept clear around the hovered pin
+const CLEAR = 85;             // px from the pin to the nearest edge of a hanging print
+const PRINT_MAX_PHOTO_W = 186;
+const PRINT_MAX_PHOTO_H = 220;
+const SLOTS = [['NE', 1, -1], ['NW', -1, -1], ['E', 1, 0], ['W', -1, 0], ['SE', 1, 1], ['SW', -1, 1], ['N', 0, -1], ['S', 0, 1]];
+const PENDULUM = 'cubic-bezier(0.22, 1.25, 0.36, 1)';
+const SWIFT_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)';
+
+function createPrints(layer) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'strings');
+  const paths = {};
+  for (const key of ['open', 'hover']) {
+    paths[key] = document.createElementNS(NS, 'path');
+    paths[key].setAttribute('class', `string string-${key}`);
+    svg.append(paths[key]);
+  }
+  layer.append(svg); // strings first, so prints hang in front of them
+
+  let card = null;    // the print hanging for the hovered pin: { id, el, slot, tilt }
+  let flying = null;  // the print on its way into the panel
+  let exiting = [];   // prints dropping away, their strings fading with them
   let lastTilt = 0;
   let hideTimer = 0;
   let token = 0;
-  const rnd = (a, b) => a + Math.random() * (b - a);
-  const rest = (q) => `translate3d(${q.rx}px, ${q.ry}px, 0) rotate(${q.tilt}deg)`;
-  const layerRect = () => layer.getBoundingClientRect();
-  const PANEL_LIP = 28; // .photo-button's bottom padding
-  const CORNER_MAX_PHOTO_H = 330; // a tall portrait print stays a comfortable size in the corner
+  let raf = 0;
+  const sag = {};     // each string's curve point, which lags behind when an end moves fast
+  const samples = []; // recent pointer positions, for the direction of travel
 
-  function pose(mode) {
-    let tilt;
-    do tilt = rnd(-6.5, 5.5); while (Math.abs(tilt - lastTilt) < 2.5 || Math.abs(tilt) < 0.8);
-    lastTilt = tilt;
-    return mode === 'photo'
-      // from the left: the wrist is cocked the other way and the arc comes up from below-left
-      ? { tilt, rx: rnd(-10, 10), ry: rnd(-8, 8), ex: -rnd(420, 520), ey: rnd(140, 220), er: tilt - 16 - rnd(0, 6), dx: -300, dy: 220, dr: tilt - 14 }
-      : { tilt, rx: rnd(-16, 0), ry: 0, ex: rnd(100, 150), ey: rnd(320, 360), er: tilt + 16 + rnd(0, 6), dx: 85, dy: 340, dr: tilt + 14 };
+  el.stage.addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    samples.push({ x: e.clientX, y: e.clientY, t: performance.now() });
+    while (samples.length > 8) samples.shift();
+  });
+  const travel = () => {
+    const now = performance.now(); const recent = samples.filter((p) => now - p.t < 120);
+    if (recent.length < 2) return null;
+    const a = recent[0]; const b = recent[recent.length - 1]; const d = Math.hypot(b.x - a.x, b.y - a.y);
+    return d > 4 ? { x: (b.x - a.x) / d, y: (b.y - a.y) / d } : null;
+  };
+
+  const lay = () => layer.getBoundingClientRect();
+  const clamp = (lo, v, hi) => Math.min(hi, Math.max(lo, v));
+  const deg = (x) => (x * Math.PI) / 180;
+  function newTilt() {
+    let t;
+    do t = -6.5 + Math.random() * 12; while (Math.abs(t - lastTilt) < 2.5 || Math.abs(t) < 0.8);
+    lastTilt = t;
+    return t;
   }
 
-  /** The open pipe's Polaroid in the panel, if enough of it is on screen to cover. */
-  function panelPrint() {
+  /** A pipe's pin, in layer coordinates. */
+  function pinPoint(id) {
+    const p = pipeById(state, id);
+    if (!p) return null;
+    const pt = pipeMap.map.project([p.lng, p.lat]);
+    const m = pipeMap.map.getContainer().getBoundingClientRect(); const L = lay();
+    return { x: m.left + pt.x - L.left, y: m.top + pt.y - L.top, inMap: pt.x >= 0 && pt.y >= 0 && pt.x <= m.width && pt.y <= m.height };
+  }
+
+  /** Where a print's tack is right now, in layer coordinates, mid-animation included. */
+  function cardTack(c) {
+    const cs = getComputedStyle(c);
+    const [tx = 0, ty = 0] = cs.translate === 'none' ? [] : cs.translate.split(' ').map(parseFloat);
+    const sc = cs.scale === 'none' ? 1 : parseFloat(cs.scale);
+    const r = cs.rotate === 'none' ? 0 : deg(parseFloat(cs.rotate));
+    const W = c.offsetWidth;
+    const tack = $('.tack', c); const ty0 = tack ? parseFloat(cs.borderTopWidth) + parseFloat(getComputedStyle(tack).top) : TACK_Y;
+    const v = { x: 0, y: (ty0 - TACK_Y) * sc }; // the tack sits on the pivot except during a landing
+    return { x: c.offsetLeft + W / 2 + tx + v.x * Math.cos(r) - v.y * Math.sin(r), y: c.offsetTop + TACK_Y + ty + v.x * Math.sin(r) + v.y * Math.cos(r) };
+  }
+
+  /** The open pipe's panel print's tack, or null when it's not where a string can reach it. */
+  function panelTack() {
     if (state.focus.kind !== 'inspect') return null;
-    const m = $('.inspect .media', el.body);
-    if (!m) return null;
-    const r = m.getBoundingClientRect(); const L = layerRect();
-    const visible = Math.min(r.bottom, L.bottom) - Math.max(r.top, L.top);
-    return r.width > 0 && visible > 120 ? m : null;
+    const b = $('.inspect .photo-frame:not([hidden]) .photo-button', el.body);
+    if (!b || b.style.visibility === 'hidden') return null;
+    const r = b.getBoundingClientRect();
+    if (!r.width) return null;
+    const body = el.body.getBoundingClientRect(); const L = lay();
+    const rot = deg(-1); const dy = TACK_Y - b.offsetHeight / 2;
+    const x = r.left + r.width / 2 - Math.sin(rot) * dy; const y = r.top + r.height / 2 + Math.cos(rot) * dy;
+    if (y < body.top + 4 || y > body.bottom - 4) return null; // scrolled out of the panel
+    return { x: x - L.left, y: y - L.top };
   }
 
-  function drop(card) {
-    if (!card) return;
-    const { el: c, pose: q } = card;
-    if (reducedMotion()) { c.remove(); return; }
-    const from = getComputedStyle(c).transform; // wherever it is now, even mid-entrance
+  /** One string from a to b, sagging; its curve point chases its resting place so fast moves bow it. */
+  function string(key, a, b, opacity = 1) {
+    const path = paths[key];
+    if (!a || !b || opacity <= 0.02) { path.style.display = 'none'; delete sag[key]; return false; }
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    const target = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 + Math.min(44, d * 0.09) };
+    const s = sag[key] || (sag[key] = { ...target });
+    const k = reducedMotion() ? 1 : 0.35;
+    s.x += (target.x - s.x) * k; s.y += (target.y - s.y) * k;
+    path.setAttribute('d', `M${a.x.toFixed(1)} ${a.y.toFixed(1)}Q${s.x.toFixed(1)} ${s.y.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`);
+    path.style.display = '';
+    path.style.opacity = String(opacity);
+    return Math.hypot(target.x - s.x, target.y - s.y) > 0.4;
+  }
+
+  function draw() {
+    let busy = false;
+    const hanging = flying || card || exiting[exiting.length - 1] || null;
+    if (hanging) {
+      const pin = pinPoint(hanging.id);
+      busy = string('hover', pin, cardTack(hanging.el), parseFloat(getComputedStyle(hanging.el).opacity)) || busy;
+    } else string('hover', null);
+    const openId = state.focus.kind === 'inspect' && !flying ? state.focus.pipeId : null;
+    const pin = openId && pinPoint(openId);
+    busy = string('open', pin && pin.inMap ? pin : null, openId && panelTack()) || busy;
+    return busy || [...layer.querySelectorAll('.polaroid')].some((c) => c.getAnimations().some((a) => a.playState === 'running'));
+  }
+  function loop() { raf = 0; if (draw()) raf = requestAnimationFrame(loop); }
+  function kick() { if (!raf) raf = requestAnimationFrame(loop); }
+
+  /** Picks the pocket a print of size W×H hangs in, in layer coordinates. */
+  function place(id, W, H, tilt, keepSlot) {
+    const pin = pinPoint(id); const L = lay(); const st = el.stage.getBoundingClientRect();
+    const grow = Math.abs(Math.sin(deg(tilt))) * Math.max(W, H) * 0.5 + 2; // what the tilt adds to its footprint
+    const B = { x0: st.left - L.left + 16 + grow, y0: st.top - L.top + 16 + grow, x1: st.right - L.left - 16 - grow, y1: st.bottom - L.top - 16 - grow };
+    const m = pipeMap.map.getContainer().getBoundingClientRect();
+    const others = pipeMap.pinsPx().filter((p) => p.id !== id).map((p) => ({ x: m.left + p.x - L.left, y: m.top + p.y - L.top }));
+    const furniture = $$('[data-map-obstacle]', el.stage).map((n) => n.getBoundingClientRect()).filter((r) => r.width)
+      .map((r) => ({ x0: r.left - L.left, y0: r.top - L.top, x1: r.right - L.left, y1: r.bottom - L.top }));
+    const v = travel();
+    let best = null;
+    SLOTS.forEach(([name, sx, sy], i) => {
+      const reach = (sx && sy ? CLEAR * Math.SQRT1_2 : CLEAR) + grow; // clear of the halo even when tilted
+      const cx = pin.x + sx * (reach + W / 2); const cy = pin.y + sy * (reach + H / 2);
+      const raw = { x0: cx - W / 2, y0: cy - H / 2 };
+      // Off the map's edge? Slide it back inside, then make sure that didn't push it into the halo.
+      const x0 = clamp(B.x0, raw.x0, Math.max(B.x0, B.x1 - W)); const y0 = clamp(B.y0, raw.y0, Math.max(B.y0, B.y1 - H));
+      const box = { x0, y0, x1: x0 + W, y1: y0 + H };
+      const slid = Math.abs(x0 - raw.x0) + Math.abs(y0 - raw.y0);
+      const gap = Math.hypot(Math.max(box.x0 - pin.x, 0, pin.x - box.x1), Math.max(box.y0 - pin.y, 0, pin.y - box.y1)) - grow;
+      let score = (slid > 0 ? 0.5 + slid * 0.001 : 0) + (gap < HALO ? 1000 + (HALO - gap) : 0);
+      for (const o of others) {
+        if (o.x > box.x0 - 16 && o.x < box.x1 + 16 && o.y > box.y0 - 16 && o.y < box.y1 + 16) score += 1 / Math.max(40, Math.hypot(o.x - pin.x, o.y - pin.y));
+      }
+      for (const f of furniture) if (f.x0 < box.x1 && f.x1 > box.x0 && f.y0 < box.y1 && f.y1 > box.y0) score += 1;
+      if (v) { const ahead = (sx * v.x + sy * v.y) / Math.hypot(sx, sy); if (ahead > 0.3) score += 0.02 * ahead; }
+      if (name === keepSlot) score -= 0.01;
+      score += i * 0.0001;
+      if (!best || score < best.score) best = { score, name, box };
+    });
+    return { slot: best.name, left: best.box.x0, top: best.box.y0 };
+  }
+
+  function fill(c, p, aspect, photoW) {
+    c.dataset.id = p.id;
+    c.style.width = `${photoW + 24}px`;
+    c.innerHTML = `<span class="tack" aria-hidden="true"></span><img src="${esc(p.photoUrl)}" alt="" style="aspect-ratio: ${aspect}">
+      <figcaption class="polaroid-caption"><span class="shapes">${p.allTypes.map((t) => shapeSvg(t, 14)).join('')}</span>
+      <span class="polaroid-title">${esc(pipeTitle(p))}</span><span class="polaroid-claps">👏 ${n(state.claps[p.id] ?? 0)}</span></figcaption>`;
+  }
+
+  /** Stops a print's animations where they are, so the next one starts from what's on screen. */
+  function freeze(c) {
+    const cs = getComputedStyle(c);
+    const now = { translate: cs.translate, scale: cs.scale, rotate: cs.rotate, opacity: cs.opacity };
     c.getAnimations().forEach((a) => a.cancel());
-    const out = c.animate([
-      { transform: from === 'none' ? rest(q) : from },
-      { transform: `translate3d(${q.rx + q.dx}px, ${q.dy}px, 0) rotate(${q.dr}deg)` },
-    ], { duration: 150, easing: 'cubic-bezier(0.45, 0, 0.85, 0.3)', fill: 'forwards' });
-    out.onfinish = () => c.remove();
+    Object.assign(c.style, now);
+    return now;
+  }
+
+  function drop(k) {
+    if (!k) return;
+    if (card === k) card = null;
+    if (reducedMotion()) { k.el.remove(); return; }
+    exiting.push(k);
+    const now = freeze(k.el);
+    const [tx = 0, ty = 0] = now.translate === 'none' ? [] : now.translate.split(' ').map(parseFloat);
+    k.el.animate({
+      translate: [`${tx}px ${ty}px`, `${tx}px ${ty + 18}px`], scale: [now.scale === 'none' ? 1 : now.scale, 0.88], opacity: [now.opacity, 0],
+    }, { duration: 130, easing: 'cubic-bezier(0.7, 0, 0.84, 0)', fill: 'forwards' }).finished.then(() => {
+      k.el.remove(); exiting = exiting.filter((x) => x !== k); kick();
+    }, () => {});
+    kick();
   }
 
   async function show(p) {
     clearTimeout(hideTimer);
-    const media = panelPrint();
-    const mode = media ? 'photo' : 'corner';
-    if (current && current.id === p.id && current.mode === mode) return;
-    drop(current);
-    current = null;
+    if (card && card.id === p.id) return;
     const my = ++token;
-    const q = pose(mode);
+    const probe = new Image();
+    probe.src = p.photoUrl;
+    await probe.decode().catch(() => {}); // its shape decides the print's size and pocket
+    if (my !== token) return;
+    const aspect = probe.naturalWidth ? `${probe.naturalWidth} / ${probe.naturalHeight}` : '1';
+    if (probe.naturalWidth) photoAspect.set(p.id, aspect); // the panel reserves this exact shape later
+    const ratio = probe.naturalWidth ? probe.naturalWidth / probe.naturalHeight : 1;
+    const photoW = Math.round(Math.min(PRINT_MAX_PHOTO_W, PRINT_MAX_PHOTO_H * ratio));
+    const tilt = newTilt();
+    const fromPin = card && pinPoint(card.id); const toPin = pinPoint(p.id);
+    if (card && fromPin && toPin && Math.hypot(toPin.x - fromPin.x, toPin.y - fromPin.y) < 100) glide(p, aspect, photoW, tilt);
+    else { drop(card); spawn(p, aspect, photoW, tilt); }
+    kick();
+  }
+
+  function spawn(p, aspect, photoW, tilt) {
     const c = document.createElement('figure');
-    c.className = `polaroid is-${mode}`;
-    c.dataset.tilt = q.tilt.toFixed(2);
-    c.dataset.id = p.id;
-    c.innerHTML = `<img src="${esc(p.photoUrl)}" alt="">
-      <figcaption class="polaroid-caption"><span class="shapes">${p.allTypes.map((t) => shapeSvg(t, 14)).join('')}</span>
-      <span class="polaroid-title">${esc(pipeTitle(p))}</span><span class="polaroid-claps">👏 ${n(state.claps[p.id] ?? 0)}</span></figcaption>`;
+    c.className = 'polaroid';
+    c.dataset.tilt = tilt.toFixed(2);
+    fill(c, p, aspect, photoW);
     c.style.visibility = 'hidden';
     layer.append(c);
-    current = { id: p.id, el: c, pose: q, mode };
-    const img = $('img', c);
-    await img.decode().catch(() => {}); // its shape decides the print's size and where it lands
-    if (my !== token || !c.isConnected) return;
-    const aspect = img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : 1;
-    if (img.naturalWidth) photoAspect.set(p.id, `${img.naturalWidth} / ${img.naturalHeight}`); // exact, so the panel reserves the very same height
-    img.style.aspectRatio = photoAspect.get(p.id) || '1';
-    const frameX = 24; // padding 10 + border 2, both sides
-    if (mode === 'photo') {
-      const panelFrame = $('.photo-button', media);
-      c.style.width = `${(panelFrame && !panelFrame.closest('[hidden]') ? panelFrame.offsetWidth : media.offsetWidth)}px`;
-    } else {
-      c.style.width = `${Math.round(Math.min(280, CORNER_MAX_PHOTO_H * aspect) + frameX)}px`;
-    }
-    const L = layerRect(); const W = c.offsetWidth; const H = c.offsetHeight;
-    if (mode === 'photo') {
-      const m = media.getBoundingClientRect();
-      c.style.left = `${m.left + m.width / 2 - W / 2 - L.left}px`;
-      c.style.top = `${m.top + m.height / 2 - (img.offsetTop + img.offsetHeight / 2) - L.top}px`;
-    } else {
-      const stage = el.stage.getBoundingClientRect();
-      c.style.left = `${stage.right - W - 28 - L.left}px`;
-      c.style.top = `${stage.bottom - H - L.top}px`;
-    }
-    c.style.transform = rest(q);
-    // The tilt swings the card about a pivot far below it, which also slides it sideways. Measure where
-    // it actually landed and nudge it into its safe zone.
-    const r = c.getBoundingClientRect(); const cap = $('.polaroid-caption', c).getBoundingClientRect();
-    let dx = 0; let dy = 0;
-    if (mode === 'photo') {
-      if (r.left < L.left + 12) dx = L.left + 12 - r.left;
-      if (r.top < L.top + 8) dy = L.top + 8 - r.top;
-    } else {
-      const stage = el.stage.getBoundingClientRect();
-      if (r.right > stage.right - 24) dx = stage.right - 24 - r.right;
-      dy = (L.bottom - 16 - rnd(0, 10)) - cap.bottom; // caption in view; the blank lip below it dips off the edge
-    }
-    c.style.left = `${c.offsetLeft + dx}px`;
-    c.style.top = `${c.offsetTop + dy}px`;
-    c.style.visibility = '';
-    if (!reducedMotion()) {
-      c.animate([
-        { transform: `translate3d(${q.ex}px, ${q.ey}px, 0) rotate(${q.er}deg)` },
-        { transform: rest(q) },
-      ], { duration: mode === 'photo' ? 280 : 220, easing: 'cubic-bezier(0.2, 1.22, 0.32, 1)' });
-    }
+    const W = c.offsetWidth; const H = c.offsetHeight;
+    const spot = place(p.id, W, H, tilt, null);
+    Object.assign(c.style, { left: `${spot.left}px`, top: `${spot.top}px`, rotate: `${tilt}deg`, visibility: '' });
+    c.dataset.slot = spot.slot;
+    card = { id: p.id, el: c, slot: spot.slot, tilt };
+    if (reducedMotion()) return;
+    // Cast out from the pin: it starts 45% of the way along the string, small, and swings to rest.
+    const pin = pinPoint(p.id); const tack = { x: spot.left + W / 2, y: spot.top + TACK_Y };
+    const sx = (pin.x - tack.x) * 0.55; const sy = (pin.y - tack.y) * 0.55;
+    c.animate({ translate: [`${sx}px ${sy}px`, '0px 0px'], scale: [0.55, 1], opacity: [0, 1] }, { duration: 190, easing: SWIFT_OUT });
+    c.animate({ rotate: [`${tilt - Math.sign(tack.x - pin.x || 1) * 8}deg`, `${tilt}deg`] }, { duration: 240, easing: PENDULUM });
+  }
+
+  function glide(p, aspect, photoW, tilt) {
+    const k = card; const c = k.el;
+    const before = cardTack(c);
+    freeze(c);
+    fill(c, p, aspect, photoW);
+    c.dataset.tilt = tilt.toFixed(2);
+    const W = c.offsetWidth; const H = c.offsetHeight;
+    const spot = place(p.id, W, H, tilt, k.slot);
+    Object.assign(c.style, { left: `${spot.left}px`, top: `${spot.top}px`, translate: '0px 0px', scale: '1', opacity: '1', rotate: `${tilt}deg` });
+    c.dataset.slot = spot.slot;
+    const after = { x: spot.left + W / 2, y: spot.top + TACK_Y };
+    const dx = after.x - before.x; const dy = after.y - before.y;
+    const prevTilt = k.tilt;
+    Object.assign(k, { id: p.id, slot: spot.slot, tilt });
+    if (reducedMotion()) return;
+    const dur = Math.round(clamp(120, Math.hypot(dx, dy) * 0.85, 240));
+    c.animate({ translate: [`${-dx}px ${-dy}px`, '0px 0px'] }, { duration: dur, easing: SWIFT_OUT });
+    // the heavy bottom lags behind the tack, then swings once past its new angle
+    c.animate({ rotate: [`${prevTilt}deg`, `${prevTilt - Math.sign(dx || 1) * 6}deg`, `${tilt}deg`], offset: [0, 0.4, 1] }, { duration: Math.max(dur, 200), easing: PENDULUM });
   }
 
   /**
-   * The held print flies to the panel and lands as the open pipe's Polaroid. Call right after the
-   * panel has switched to that pipe. Returns false when there was no print of that pipe to land.
+   * Lifts the hovered print off the map and sets it down as the panel's Polaroid of the pipe just
+   * opened (call right after the panel switched). Its frame, border and tack shrink as it grows, so
+   * it arrives at exactly the panel print's proportions. False when no print of that pipe was hanging.
    */
   function become(id) {
     clearTimeout(hideTimer);
-    if (!current || current.id !== id || current.el.style.visibility === 'hidden') { hide({ instant: true }); return false; }
-    const card = current;
-    current = null;
-    token++;
-    const c = card.el;
-    c.classList.add('is-becoming');
+    if (!card || card.id !== id) { hide({ instant: true }); return false; }
+    const k = card; card = null; token++;
+    const c = k.el;
     const target = $('.inspect .photo-frame:not([hidden]) .photo-button', el.body);
-    const done = (frame) => () => { if (frame) frame.style.visibility = ''; c.remove(); };
-    if (reducedMotion()) { c.remove(); return true; }
-    if (!target) { // the open pipe shows its 3D scan: the print just fades away over it
-      c.getAnimations().forEach((a) => a.cancel());
-      c.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, fill: 'forwards' }).finished.then(done(null), done(null));
-      return true;
-    }
+    if (reducedMotion() || !target) { drop(k); kick(); return false; }
+    flying = k;
+    c.classList.add('is-becoming');
     target.style.visibility = 'hidden';
-    const tImg = $('img', target); const img = $('img', c);
-    // Where the panel print's photo really is: its untilted layout, rotated -1° about its centre.
-    const tb = target.getBoundingClientRect();
-    const tc = { x: tb.left + tb.width / 2, y: tb.top + tb.height / 2 };
-    const tw = target.offsetWidth; const th = target.offsetHeight;
-    const rot = (-1 * Math.PI) / 180; const cos = Math.cos(rot); const sin = Math.sin(rot);
-    const lx = tImg.offsetLeft - tw / 2; const ly = tImg.offsetTop - th / 2;
-    const goal = { x: tc.x + cos * lx - sin * ly, y: tc.y + sin * lx + cos * ly };
-    // The flying card: re-express its current pose about its own top-left, so the move needs one pivot.
-    const L = layerRect();
-    const pos = { x: L.left + c.offsetLeft, y: L.top + c.offsetTop };
-    const cs = getComputedStyle(c);
-    const m = new DOMMatrix(cs.transform === 'none' ? undefined : cs.transform);
-    const [ox, oy] = cs.transformOrigin.split(' ').map(parseFloat);
-    const from = new DOMMatrix([m.a, m.b, m.c, m.d, m.e + ox - (m.a * ox + m.c * oy), m.f + oy - (m.b * ox + m.d * oy)]);
-    const s = tImg.offsetWidth / img.offsetWidth;
-    const jx = img.offsetLeft; const jy = img.offsetTop;
-    const a = s * cos; const b = s * sin;
-    const to = new DOMMatrix([a, b, -b, a, goal.x - pos.x - (a * jx - b * jy), goal.y - pos.y - (b * jx + a * jy)]);
-    c.getAnimations().forEach((x) => x.cancel());
-    c.style.transformOrigin = '0 0';
-    c.style.transform = from.toString();
+    const now = freeze(c);
+    const L = lay();
+    const W = c.offsetWidth; const tw = target.offsetWidth; const th = target.offsetHeight;
+    const s = tw / W; // the landed frame: same width as the panel print's
+    // Where the panel print's photo is: its untilted layout, turned -1° about its centre.
+    const tb = target.getBoundingClientRect(); const tImg = $('img', target);
+    const rot = deg(-1); const cos = Math.cos(rot); const sin = Math.sin(rot);
+    // (offsetLeft/Top count from inside the frame's border; clientLeft/Top add the border back)
+    const lx = target.clientLeft + tImg.offsetLeft - tw / 2; const ly = target.clientTop + tImg.offsetTop - th / 2;
+    const goal = { x: tb.left + tb.width / 2 + cos * lx - sin * ly - L.left, y: tb.top + tb.height / 2 + sin * lx + cos * ly - L.top };
+    // The print's photo ends 12px/s in from its corner (border 2 + padding 10, shrunk by 1/s).
+    const O = { x: W / 2, y: TACK_Y }; const j = { x: 12 / s - O.x, y: 12 / s - O.y };
+    const t = { x: goal.x - c.offsetLeft - O.x - s * (cos * j.x - sin * j.y), y: goal.y - c.offsetTop - O.y - s * (sin * j.x + cos * j.y) };
+    const [tx0 = 0, ty0 = 0] = now.translate === 'none' ? [] : now.translate.split(' ').map(parseFloat);
+    const s0 = now.scale === 'none' ? 1 : parseFloat(now.scale); const r0 = now.rotate === 'none' ? 0 : parseFloat(now.rotate);
+    const dist = Math.hypot(t.x - tx0, t.y - ty0);
+    const dur = Math.round(clamp(240, dist * 0.45, 400));
+    const mid = { x: tx0 + (t.x - tx0) * 0.45, y: ty0 + (t.y - ty0) * 0.45 - 22 }; // lifted off the map on a small arc
+    const opts = { duration: dur, easing: SWIFT_OUT, fill: 'forwards' };
+    c.animate({
+      translate: [`${tx0}px ${ty0}px`, `${mid.x}px ${mid.y}px`, `${t.x}px ${t.y}px`],
+      scale: [s0, (s0 + (s - s0) * 0.45) * 1.03, s],
+      rotate: [`${r0}deg`, `${r0 + (-1 - r0) * 0.45}deg`, '-1deg'],
+      offset: [0, 0.45, 1],
+    }, opts).finished.then(() => {
+      target.style.visibility = '';
+      c.remove(); flying = null;
+      draw(); kick(); // hand the string straight to the panel print, this same frame
+    }, () => {});
+    // frame, border, shadow and tack shrink by 1/s so they land at the panel print's sizes
+    c.animate({
+      paddingTop: ['10px', `${10 / s}px`], paddingLeft: ['10px', `${10 / s}px`], paddingRight: ['10px', `${10 / s}px`],
+      paddingBottom: [getComputedStyle(c).paddingBottom, `${28 / s}px`], borderWidth: ['2px', `${2 / s}px`],
+      boxShadow: ['4px 4px 0 #232220', `${4 / s}px ${4 / s}px 0 #232220`],
+    }, opts);
+    $('img', c).animate({ borderWidth: ['1.5px', `${1.5 / s}px`] }, opts);
+    $('.tack', c).animate({ top: ['8px', `${8 / s}px`], scale: [1, 1 / s] }, opts); // lands 10px down from the panel print's edge, like its own tack
     const cap = $('.polaroid-caption', c);
-    const ease = { duration: 420, easing: 'cubic-bezier(0.2, 0.9, 0.25, 1)', fill: 'forwards' };
-    // The caption tucks away and the deep lip shrinks to the panel print's, so the frame matches on landing.
-    cap.animate([{ opacity: 1, height: `${cap.offsetHeight}px`, marginTop: '10px' }, { opacity: 0, height: '0px', marginTop: '0px' }], ease);
-    c.animate([{ paddingBottom: getComputedStyle(c).paddingBottom }, { paddingBottom: `${PANEL_LIP / s}px` }], ease);
-    c.animate([{ transform: from.toString() }, { transform: to.toString() }], ease).finished.then(done(target), done(target));
+    cap.animate({ opacity: [1, 0], height: [`${cap.offsetHeight}px`, '0px'], marginTop: ['10px', '0px'] }, opts);
+    kick();
     return true;
   }
 
   function hide({ instant = false } = {}) {
     clearTimeout(hideTimer);
-    if (instant) { token++; layer.querySelectorAll('.polaroid:not(.is-becoming)').forEach((c) => c.remove()); current = null; return; }
-    hideTimer = setTimeout(() => { drop(current); current = null; }, 45);
+    token++;
+    if (instant) {
+      layer.querySelectorAll('.polaroid:not(.is-becoming)').forEach((c) => c.remove());
+      card = null; exiting = []; kick();
+      return;
+    }
+    hideTimer = setTimeout(() => { drop(card); kick(); }, 45);
   }
 
-  return { show, hide, become, holding: (id) => Boolean(current && current.id === id) };
+  return { show, hide, become, kick, holding: (id) => Boolean(card && card.id === id) };
 }
 const printLayer = document.createElement('div');
 printLayer.className = 'print-layer';
 printLayer.setAttribute('aria-hidden', 'true');
 document.body.append(printLayer);
-const polaroid = createPolaroid(printLayer);
+prints = createPrints(printLayer);
+const polaroid = prints;
+pipeMap.map.on('move', () => prints.kick());
+el.body.addEventListener('scroll', () => prints.kick(), { passive: true });
+window.addEventListener('resize', () => prints.kick());
 
 // ---------------------------------------------------------------- map gestures
 const gestures = attachMapGestures(pipeMap.map, {
