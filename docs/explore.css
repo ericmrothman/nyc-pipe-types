@@ -168,12 +168,21 @@ input:focus, textarea:focus { outline: none; box-shadow: var(--lift); background
 .tab:hover { color: var(--ink); }
 .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--standpipe); }
 
-.pipe-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; }
-.pipe-card { display: grid; gap: 4px; min-width: 0; }
+/* All pipes: a board of mini Polaroids, tacked up a little askew, each photo its own shape. */
+.pipe-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; align-items: start; }
+.pipe-col { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; min-width: 0; }
+.pipe-card {
+  position: relative; display: grid; min-width: 0;
+  padding: 8px 8px 10px; background: var(--white); border: var(--line); box-shadow: 3px 3px 0 var(--ink);
+  rotate: var(--tilt, 0deg);
+  transition: translate 120ms ease-out, box-shadow 120ms;
+}
+.pipe-card .tack { top: 4px; } /* + the 2px border: 6px down */
+.pipe-card:hover, .pipe-card.is-hovered { translate: 0 -2px; box-shadow: var(--lift); }
 .pipe-card-photo { position: relative; display: block; padding: 0; border: 0; background: none; }
-.pipe-card-photo img { width: 100%; aspect-ratio: 1; object-fit: cover; border: var(--line); background: var(--card); transition: transform 120ms ease-out, box-shadow 120ms; }
-.pipe-card-photo:hover img, .pipe-card.is-hovered .pipe-card-photo img { transform: translate(-2px, -2px); box-shadow: var(--lift); }
-.pipe-card-caption { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+.pipe-card-photo img { display: block; width: 100%; height: auto; border: 1.5px solid var(--ink); background: var(--card); } /* never cropped */
+.pipe-card-caption { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; margin-top: 8px; }
+@media (max-width: 899px) { .pipe-card { rotate: 0deg; } .pipe-card .tack { display: none; } }
 .pipe-card-name {
   display: flex; align-items: center; gap: 5px; min-width: 0; padding: 4px 0;
   border: 0; background: none; text-align: left;
@@ -185,7 +194,7 @@ input:focus, textarea:focus { outline: none; box-shadow: var(--lift); background
 .pipe-card-claps:hover { background: var(--oil); }
 .pipe-card-claps.is-wild { background: var(--standpipe); color: #fff; }
 .pipe-card-claps.is-bumped { animation: clap 260ms cubic-bezier(.3,1.6,.5,1); }
-.feed-empty { grid-column: 1 / -1; padding: 18px; text-align: center; }
+.feed-empty { padding: 18px; text-align: center; }
 .badge-3d {
   position: absolute; left: 6px; top: 6px;
   padding: 2px 6px 3px;
@@ -419,7 +428,9 @@ input:focus, textarea:focus { outline: none; box-shadow: var(--lift); background
   box-shadow: 1px 1.5px 0 rgba(35, 34, 32, 0.35);
 }
 /* Red string: from a pin to a hanging print, and from the open pipe's pin to its panel print. */
-.strings { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.strings { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; overflow: visible; } /* strings in front of the prints */
+.polaroid { z-index: 1; }
+.string-cap { fill: var(--standpipe); stroke: var(--ink); stroke-width: 1.5; }
 .string { fill: none; stroke: var(--standpipe); stroke-width: 2.25; stroke-linecap: round; filter: drop-shadow(0 2px 1px rgba(35, 34, 32, 0.35)); }
 @media (max-width: 899px) { .print-layer { display: none; } }
 

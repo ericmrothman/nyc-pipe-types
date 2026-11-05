@@ -109,7 +109,9 @@ export function attachMapGestures(map, h) {
       const cand = h.candidatePx();
       const overCand = Boolean(cand && isOnStartPin(p, cand));
       h.onCandidateHover(overCand);
-      h.onHover(overCand ? null : pinNearTap(p, h.pinsPx(), snapRadius()));
+      // Hover hugs the pin as drawn (taps keep the generous finger-sized radius), so leaving a pin
+      // is noticed the moment the pointer is off it.
+      h.onHover(overCand ? null : pinNearTap(p, h.pinsPx(), h.hoverRadius ? h.hoverRadius() : snapRadius()));
     }
   }
 

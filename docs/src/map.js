@@ -1,7 +1,7 @@
 // The map: MapLibre for streets, one HiDPI <canvas class="map-overlay"> for every pin.
 // Pins are drawn, never DOM nodes, so 100+ of them pan at 60fps.
 
-import { NYC_BOUNDS, WALK_CENTER, WALK_ZOOM, TYPE_BY_KEY } from './state.js';
+import { NYC_BOUNDS, WALK_CENTER, WALK_ZOOM } from './state.js';
 import { drawShape } from './shapes.js';
 import { zineStyle, resolveTheme, parseHatchId } from './map_theme.js';
 
@@ -122,9 +122,7 @@ const CAMERA_MS = 1600;
 const PRESENCE = { cellMs: 420, rippleMs: 380 };
 const COST_OF_COVERING_A_SOFT_MARK = 1000;
 const INK = '#232220';
-// The story's two typefaces, also on the canvas (callouts) so the map speaks the same voice.
-const LABEL_FONT = '400 15px "Darumadrop One", Georgia, serif';
-const COUNT_FONT = '700 13px Cardo, Georgia, serif';
+
 const PIN_EDGE = '#FFFFFF';
 
 export const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
@@ -175,10 +173,6 @@ function drawTeardrop(ctx, x, y, { pulse = 0, hot = false, manual = false }) {
   ctx.beginPath(); ctx.arc(x, headY, 5.5, 0, Math.PI * 2);
   ctx.fillStyle = '#FFFFFF'; ctx.fill();
   ctx.restore();
-}
-
-function roundedRect(ctx, x, y, w, h, r) {
-  ctx.beginPath(); ctx.roundRect(x, y, w, h, r);
 }
 
 const overlapArea = (a, b) =>
@@ -278,7 +272,6 @@ export function createPipeMap(container, { getClaps, obstacleRoot, theme: initia
   let candidate = null;     // { id, lng, lat, hasExif, hot }
   let candidatePulseAt = 0;
   let coveredBottomPx = 0;
-  let lastCallout = null;
   let animating = false;
   let ready = false;
   const readyWaiters = [];
@@ -309,61 +302,9 @@ export function createPipeMap(container, { getClaps, obstacleRoot, theme: initia
     return easeInOutCubic(Math.max(0, Math.min(1, (now - pin.appearAt) / PRESENCE.cellMs)));
   }
 
-  function obstacleBoxes() {
-    const base = map.getContainer().getBoundingClientRect();
-    const boxes = [];
-    const nodes = [...(obstacleRoot?.querySelectorAll('[data-map-obstacle]') || []), ...map.getContainer().querySelectorAll('.maplibregl-ctrl')];
-    for (const n of nodes) {
-      const r = n.getBoundingClientRect();
-      if (!r.width || !r.height || getComputedStyle(n).visibility === 'hidden') continue;
-      boxes.push({ x: r.left - base.left - 4, y: r.top - base.top - 4, w: r.width + 8, h: r.height + 8 });
-    }
-    const { clientWidth: w, clientHeight: h } = map.getContainer();
-    if (coveredBottomPx > 0) boxes.push({ x: 0, y: h - coveredBottomPx, w, h: coveredBottomPx });
-    return boxes;
-  }
 
-  function drawCallout(pipe, x, y, r) {
-    const type = TYPE_BY_KEY[pipe.primaryType];
-    // Same name the sidebar uses: a mixed photo reads "Standpipe + Air inlet", not just its primary type.
-    const label = pipe.customTag || (pipe.allTypes.length > 1 ? pipe.allTypes.map((t) => TYPE_BY_KEY[t].short).join(' + ') : type.label);
-    const claps = `👏 ${getClaps(pipe.id).toLocaleString('en-US')}`;
-    ctx.save();
-    ctx.font = LABEL_FONT;
-    const lw = ctx.measureText(label).width;
-    ctx.font = COUNT_FONT;
-    const cw = ctx.measureText(claps).width;
-    const w = Math.ceil(lw + cw + 14 + 22 + 12);
-    const h = 30;
-    const { clientWidth: W, clientHeight: H } = map.getContainer();
-    const others = [];
-    for (const p of pins) {
-      if (p.pipe.id === pipe.id || p.leaving) continue;
-      const pt = map.project([p.pipe.lng, p.pipe.lat]);
-      if (Math.abs(pt.x - x) < 200 && Math.abs(pt.y - y) < 120) others.push({ x: pt.x - 6, y: pt.y - 6, w: 12, h: 12 });
-    }
-    const hard = [...obstacleBoxes(), { x: x - r - 3, y: y - r - 3, w: r * 2 + 6, h: r * 2 + 6 }];
-    const place = placeCallout({ anchor: { x, y }, size: { w, h }, gap: r + 12, hard, soft: others, bounds: { x: 4, y: 4, w: W - 8, h: H - 8 }, previous: lastCallout });
-    lastCallout = place.name;
-    const b = place.box;
-    // leader
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(Math.max(b.x + 6, Math.min(b.x + b.w - 6, x)), Math.max(b.y + 4, Math.min(b.y + b.h - 4, y)));
-    ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.stroke();
-    roundedRect(ctx, b.x, b.y, b.w, b.h, 3);
-    ctx.fillStyle = '#FFFFFF'; ctx.fill();
-    ctx.lineWidth = 1.5; ctx.strokeStyle = INK; ctx.stroke();
-    drawShape(ctx, pipe.primaryType, b.x + 15, b.y + h / 2, 5, { stroke: INK, lineWidth: 1 });
-    ctx.fillStyle = INK;
-    ctx.textBaseline = 'middle';
-    ctx.font = LABEL_FONT;
-    ctx.fillText(label, b.x + 26, b.y + h / 2 + 0.5);
-    ctx.font = COUNT_FONT;
-    ctx.fillStyle = '#65635E';
-    ctx.fillText(claps, b.x + 26 + lw + 10, b.y + h / 2 + 0.5);
-    ctx.restore();
-  }
+  // (Selected and sidebar-hovered pins used to wear a text callout here; the red string to the
+  // print now says which pin it is.)
 
   function draw() {
     const dpr = window.devicePixelRatio || 1;
@@ -395,7 +336,6 @@ export function createPipeMap(container, { getClaps, obstacleRoot, theme: initia
       ctx.lineWidth = 2; ctx.strokeStyle = INK; ctx.stroke();
       ctx.restore();
       drawPipePin(ctx, p.pipe, pt.x, pt.y, R, { emphasised: true, crayon: theme.crayonPins });
-      if (hoverCallout && !selectedPin) drawCallout(p.pipe, pt.x, pt.y, R);
     }
     if (selectedPin) {
       const { pt, p } = selectedPin;
@@ -407,7 +347,6 @@ export function createPipeMap(container, { getClaps, obstacleRoot, theme: initia
       ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.stroke();
       ctx.restore();
       drawPipePin(ctx, p.pipe, pt.x, pt.y, R, { emphasised: true, crayon: theme.crayonPins });
-      drawCallout(p.pipe, pt.x, pt.y, R);
     }
     if (candidate) {
       const pt = map.project([candidate.lng, candidate.lat]);
@@ -475,7 +414,7 @@ export function createPipeMap(container, { getClaps, obstacleRoot, theme: initia
       pins = out;
       map.triggerRepaint();
     },
-    setSelected(id) { if (id !== selectedId) { selectedId = id; lastCallout = null; map.triggerRepaint(); } },
+    setSelected(id) { if (id !== selectedId) { selectedId = id; map.triggerRepaint(); } },
     setHover(id, { callout = false } = {}) {
       if (id === hoverId && callout === hoverCallout) return;
       hoverId = id; hoverCallout = Boolean(id) && callout;
@@ -490,6 +429,7 @@ export function createPipeMap(container, { getClaps, obstacleRoot, theme: initia
     setCovered(px) { coveredBottomPx = px; applyCoveredPadding(px); map.triggerRepaint(); },
     get coveredBottomPx() { return coveredBottomPx; },
     uncoveredSize,
+    pinRadius: () => pinRadius(),
     redraw: () => map.triggerRepaint(),
     /** Re-inks the basemap in place (a style diff: no reload, the camera and pins stay put). */
     setTheme(next) {

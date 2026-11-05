@@ -90,8 +90,10 @@ let navOrder = null;          // the feed order Prev/Next walks through; frozen 
 // ---------------------------------------------------------------- dispatch
 function dispatch(action, { fromHistory = false } = {}) {
   const prev = state;
+  // A board card or the open pipe's print about to be swapped out gets copied first, to fly to its new home.
+  const handoff = prints?.before(action);
   state = reducePipeState(state, action);
-  if (state === prev && !action.type.startsWith('escape/')) return;
+  if (state === prev && !action.type.startsWith('escape/')) { handoff?.flyer.el.remove(); return; }
 
   if (state.focus.kind !== 'inspect' || state.filters !== prev.filters || state.tab !== prev.tab) navOrder = null;
 
@@ -99,6 +101,7 @@ function dispatch(action, { fromHistory = false } = {}) {
   if (nextSnap !== drawer.snap) drawer.setSnap(nextSnap);
 
   render(prev, action);
+  prints?.after(handoff);
   choreographCamera(prev, action);
 
   if (!fromHistory) {
@@ -176,6 +179,7 @@ function renderDrawer(prev) {
     // The hovered card may be gone now (no pointerout fires for removed nodes), so drop its halo.
     hoveredCardId = null;
     pipeMap.setHover(null);
+    prints?.hoverCard(null);
     el.drawer.dataset.focus = f.kind;
     afterDrawerRender(prev);
   }
@@ -219,7 +223,17 @@ document.addEventListener('keydown', (e) => { if (!e.metaKey && !e.ctrlKey && !e
 
 function restTemplate() {
   const feed = sortedFeed(state);
-  const items = feed.map((p) => pipeCard(p)).join('') || '<li class="feed-empty">No pipes of this kind yet. Be the first!</li>';
+  // Two columns of prints pinned to a board, each photo its own shape: each print goes into whichever
+  // column is shorter so far (#1 top left, #2 top right, then wherever there's room).
+  const cols = [[], []]; const height = [0, 0];
+  for (const p of feed) {
+    const [w, h] = (photoAspect.get(p.id) || '3 / 4').split('/').map(Number);
+    const i = height[0] <= height[1] ? 0 : 1;
+    cols[i].push(pipeCard(p)); height[i] += h / w + 0.4;
+  }
+  const items = feed.length
+    ? cols.map((c) => `<ol class="pipe-col">${c.join('')}</ol>`).join('')
+    : '<p class="feed-empty">No pipes of this kind yet. Be the first!</p>';
   return `
   <section class="rest">
     <h1 class="sr-only">The NYC Pipe Appreciation Portal</h1>
@@ -230,16 +244,17 @@ function restTemplate() {
       <button type="button" role="tab" class="tab" data-act="tab" data-tab="top" aria-selected="${state.tab === 'top'}">Most appreciated</button>
       <button type="button" role="tab" class="tab" data-act="tab" data-tab="new" aria-selected="${state.tab === 'new'}">Newest</button>
     </div>
-    <ol class="pipe-grid">${items}</ol>
+    <div class="pipe-grid">${items}</div>
   </section>`;
 }
 
 function pipeCard(p) {
   const shapes = p.allTypes.map((t) => shapeSvg(t, 13)).join('');
   return `
-  <li class="pipe-card" data-pipe-card="${esc(p.id)}">
+  <li class="pipe-card" data-pipe-card="${esc(p.id)}" style="--tilt: ${cardTilt(p.id).toFixed(2)}deg">
+    <span class="tack" aria-hidden="true"></span>
     <button type="button" class="pipe-card-photo" data-act="select" data-id="${esc(p.id)}" aria-label="Open ${esc(pipeTitle(p))}">
-      <img src="${esc(p.photoUrl)}" alt="" loading="lazy" decoding="async">
+      <img src="${esc(p.photoUrl)}" alt="" loading="lazy" decoding="async"${photoAspect.has(p.id) ? ` style="aspect-ratio: ${photoAspect.get(p.id)}"` : ''}>
       ${p.modelUrl ? '<span class="badge-3d" title="Has a 3D scan you can spin">3D</span>' : ''}
     </button>
     <div class="pipe-card-caption">
@@ -716,7 +731,7 @@ document.addEventListener('click', async (e) => {
     case 'appreciate':
       if (e.detail === 0) appreciate(t); // keyboard (Enter/Space); pointer presses are handled on pointerdown
       break;
-    case 'select': dispatch({ type: 'pipe/select', pipeId: t.dataset.id }); break;
+    case 'select': dispatch({ type: 'pipe/select', pipeId: t.dataset.id, from: 'grid' }); break;
     case 'rest': dispatch({ type: 'focus/rest' }); break;
     case 'filter': dispatch({ type: 'filter/toggle', key: t.dataset.key }); break;
     case 'filter-all': dispatch({ type: 'filter/all' }); break;
@@ -925,15 +940,26 @@ function markCardHovered(id) {
   hoveredCardId = id;
   if (id) $(`[data-pipe-card="${CSS.escape(id)}"]`, el.body)?.classList.add('is-hovered');
 }
+// Every photo that loads teaches us its shape, so later prints and panels can reserve it up front.
+el.body.addEventListener('load', (e) => {
+  const img = e.target;
+  if (img.tagName !== 'IMG' || !img.naturalWidth) return;
+  const id = img.closest('[data-pipe-card]')?.dataset.pipeCard || (img.closest('.inspect .photo-frame') && state.focus.pipeId);
+  if (!id) return;
+  const aspect = `${img.naturalWidth} / ${img.naturalHeight}`;
+  photoAspect.set(id, aspect);
+  img.style.aspectRatio = aspect;
+}, true);
+
 el.body.addEventListener('pointerover', (e) => {
   if (e.pointerType !== 'mouse') return;
   const card = e.target.closest('[data-pipe-card]');
-  if (card) pipeMap.setHover(card.dataset.pipeCard, { callout: true });
+  if (card) { pipeMap.setHover(card.dataset.pipeCard); prints?.hoverCard(card.dataset.pipeCard); }
 });
 el.body.addEventListener('pointerout', (e) => {
   if (e.pointerType !== 'mouse') return;
   const card = e.target.closest('[data-pipe-card]');
-  if (card && !card.contains(e.relatedTarget)) pipeMap.setHover(null);
+  if (card && !card.contains(e.relatedTarget)) { pipeMap.setHover(null); prints?.hoverCard(null); }
 });
 
 // ---------------------------------------------------------------- prints on a string
@@ -964,26 +990,50 @@ const SLOTS = [['NE', 1, -1], ['NW', -1, -1], ['E', 1, 0], ['W', -1, 0], ['SE', 
 const PENDULUM = 'cubic-bezier(0.22, 1.25, 0.36, 1)';
 const SWIFT_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)';
 
+/** A board card's resting tilt: a little askew, the same every time for the same pipe. */
+function cardTilt(id) {
+  let h = 2166136261;
+  for (const ch of String(id)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  const t = (((h >>> 0) % 1000) / 1000) * 3.2 - 1.6;
+  return Math.abs(t) < 0.4 ? (t < 0 ? -0.4 : 0.4) + t : t;
+}
+
+/** Where `node` sits inside `frame`, measured from frame's outer (border) edge, ignoring transforms. */
+function offsetIn(node, frame) {
+  let x = 0; let y = 0; let n = node;
+  while (n && n !== frame) {
+    x += n.offsetLeft; y += n.offsetTop;
+    const up = n.offsetParent;
+    if (up && up !== frame) { x += up.clientLeft; y += up.clientTop; }
+    n = up;
+  }
+  return { x: x + frame.clientLeft, y: y + frame.clientTop, w: node.offsetWidth, h: node.offsetHeight };
+}
+
 function createPrints(layer) {
   const NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('class', 'strings');
-  const paths = {};
-  for (const key of ['open', 'hover']) {
+  const paths = {}; const caps = {};
+  for (const key of ['open', 'card', 'hover']) {
     paths[key] = document.createElementNS(NS, 'path');
     paths[key].setAttribute('class', `string string-${key}`);
+    caps[key] = document.createElementNS(NS, 'circle');
+    caps[key].setAttribute('class', `string-cap string-cap-${key}`);
+    caps[key].setAttribute('r', '4.5');
     svg.append(paths[key]);
   }
-  layer.append(svg); // strings first, so prints hang in front of them
+  for (const key of ['open', 'card', 'hover']) svg.append(caps[key]); // tack heads over every string
+  layer.append(svg); // on top of the prints (z-index), so a print landing under its string never pops
 
   let card = null;    // the print hanging for the hovered pin: { id, el, slot, tilt }
-  let flying = null;  // the print on its way into the panel
+  let flying = null;  // a print on its way somewhere: { id, el, noString? }
   let exiting = [];   // prints dropping away, their strings fading with them
+  let boardId = null; // the board card the pointer is on, strung to its pin
   let lastTilt = 0;
-  let hideTimer = 0;
   let token = 0;
   let raf = 0;
-  const sag = {};     // each string's curve point, which lags behind when an end moves fast
+  const sag = {};     // each string's springy curve point
   const samples = []; // recent pointer positions, for the direction of travel
 
   el.stage.addEventListener('pointermove', (e) => {
@@ -999,8 +1049,10 @@ function createPrints(layer) {
   };
 
   const lay = () => layer.getBoundingClientRect();
+  const active = () => getComputedStyle(layer).display !== 'none';
   const clamp = (lo, v, hi) => Math.min(hi, Math.max(lo, v));
   const deg = (x) => (x * Math.PI) / 180;
+  const lerp = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
   function newTilt() {
     let t;
     do t = -6.5 + Math.random() * 12; while (Math.abs(t - lastTilt) < 2.5 || Math.abs(t) < 0.8);
@@ -1017,58 +1069,65 @@ function createPrints(layer) {
     return { x: m.left + pt.x - L.left, y: m.top + pt.y - L.top, inMap: pt.x >= 0 && pt.y >= 0 && pt.x <= m.width && pt.y <= m.height };
   }
 
-  /** Where a print's tack is right now, in layer coordinates, mid-animation included. */
-  function cardTack(c) {
-    const cs = getComputedStyle(c);
-    const [tx = 0, ty = 0] = cs.translate === 'none' ? [] : cs.translate.split(' ').map(parseFloat);
-    const sc = cs.scale === 'none' ? 1 : parseFloat(cs.scale);
-    const r = cs.rotate === 'none' ? 0 : deg(parseFloat(cs.rotate));
-    const W = c.offsetWidth;
-    const tack = $('.tack', c); const ty0 = tack ? parseFloat(cs.borderTopWidth) + parseFloat(getComputedStyle(tack).top) : TACK_Y;
-    const v = { x: 0, y: (ty0 - TACK_Y) * sc }; // the tack sits on the pivot except during a landing
-    return { x: c.offsetLeft + W / 2 + tx + v.x * Math.cos(r) - v.y * Math.sin(r), y: c.offsetTop + TACK_Y + ty + v.x * Math.sin(r) + v.y * Math.cos(r) };
+  /** The centre of an element's tack, in layer coordinates (exact mid-animation too). */
+  function tackOf(frame) {
+    const t = frame && $('.tack', frame);
+    if (!t) return null;
+    const r = t.getBoundingClientRect(); const L = lay();
+    return { x: r.left + r.width / 2 - L.left, y: r.top + r.height / 2 - L.top };
+  }
+  /** A tack inside the panel, if it's scrolled into view there. */
+  function panelTackOf(frame) {
+    if (!frame || frame.style.visibility === 'hidden' || frame.closest('[hidden]')) return null;
+    const t = tackOf(frame); const body = el.body.getBoundingClientRect(); const L = lay();
+    if (!t || t.y + L.top < body.top + 4 || t.y + L.top > body.bottom - 4) return null;
+    return t;
   }
 
-  /** The open pipe's panel print's tack, or null when it's not where a string can reach it. */
-  function panelTack() {
-    if (state.focus.kind !== 'inspect') return null;
-    const b = $('.inspect .photo-frame:not([hidden]) .photo-button', el.body);
-    if (!b || b.style.visibility === 'hidden') return null;
-    const r = b.getBoundingClientRect();
-    if (!r.width) return null;
-    const body = el.body.getBoundingClientRect(); const L = lay();
-    const rot = deg(-1); const dy = TACK_Y - b.offsetHeight / 2;
-    const x = r.left + r.width / 2 - Math.sin(rot) * dy; const y = r.top + r.height / 2 + Math.cos(rot) * dy;
-    if (y < body.top + 4 || y > body.bottom - 4) return null; // scrolled out of the panel
-    return { x: x - L.left, y: y - L.top };
-  }
-
-  /** One string from a to b, sagging; its curve point chases its resting place so fast moves bow it. */
+  /**
+   * One string from pin a to tack b. Its curve point is a damped spring chasing the resting sag, so the
+   * string bounces once or twice when it hooks on, lands or is pulled; a new string shoots out from
+   * the tack to the pin in ~140ms.
+   */
   function string(key, a, b, opacity = 1) {
-    const path = paths[key];
-    if (!a || !b || opacity <= 0.02) { path.style.display = 'none'; delete sag[key]; return false; }
+    const path = paths[key]; const cap = caps[key];
+    if (!a || !b || opacity <= 0.02) { path.style.display = 'none'; cap.style.display = 'none'; delete sag[key]; return false; }
+    const now = performance.now();
     const d = Math.hypot(b.x - a.x, b.y - a.y);
     const target = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 + Math.min(44, d * 0.09) };
-    const s = sag[key] || (sag[key] = { ...target });
-    const k = reducedMotion() ? 1 : 0.35;
-    s.x += (target.x - s.x) * k; s.y += (target.y - s.y) * k;
-    path.setAttribute('d', `M${a.x.toFixed(1)} ${a.y.toFixed(1)}Q${s.x.toFixed(1)} ${s.y.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`);
-    path.style.display = '';
-    path.style.opacity = String(opacity);
-    return Math.hypot(target.x - s.x, target.y - s.y) > 0.4;
+    let s = sag[key];
+    if (!s) s = sag[key] = { x: target.x, y: target.y - Math.min(14, d * 0.05), vx: 0, vy: 5.5, born: now, last: now, progress: 0 };
+    if (reducedMotion()) Object.assign(s, target, { vx: 0, vy: 0, progress: 1 });
+    else {
+      const dt = clamp(0.25, (now - s.last) / 16.67, 3);
+      const damp = Math.pow(0.74, dt);
+      s.vx = (s.vx + (target.x - s.x) * 0.24 * dt) * damp;
+      s.vy = (s.vy + (target.y - s.y) * 0.24 * dt) * damp;
+      s.x += s.vx * dt; s.y += s.vy * dt;
+      s.progress = Math.min(1, (now - s.born) / 140);
+    }
+    s.last = now;
+    const p = 1 - Math.pow(1 - s.progress, 3);
+    // Drawn from the tack toward the pin and cut at p (de Casteljau), so a new string shoots out.
+    const q = lerp(b, s, p); const tip = lerp(q, lerp(s, a, p), p);
+    path.setAttribute('d', `M${b.x.toFixed(1)} ${b.y.toFixed(1)}Q${q.x.toFixed(1)} ${q.y.toFixed(1)} ${tip.x.toFixed(1)} ${tip.y.toFixed(1)}`);
+    path.style.display = ''; path.style.opacity = String(opacity);
+    cap.setAttribute('cx', b.x.toFixed(1)); cap.setAttribute('cy', b.y.toFixed(1));
+    cap.style.display = ''; cap.style.opacity = String(opacity);
+    return s.progress < 1 || Math.hypot(s.vx, s.vy) > 0.05 || Math.hypot(target.x - s.x, target.y - s.y) > 0.3;
   }
 
   function draw() {
     let busy = false;
-    const hanging = flying || card || exiting[exiting.length - 1] || null;
-    if (hanging) {
-      const pin = pinPoint(hanging.id);
-      busy = string('hover', pin, cardTack(hanging.el), parseFloat(getComputedStyle(hanging.el).opacity)) || busy;
-    } else string('hover', null);
+    const hanging = (flying && !flying.noString && flying) || card || exiting[exiting.length - 1] || null;
+    if (hanging) busy = string('hover', pinPoint(hanging.id), tackOf(hanging.el), parseFloat(getComputedStyle(hanging.el).opacity)) || busy;
+    else string('hover', null);
     const openId = state.focus.kind === 'inspect' && !flying ? state.focus.pipeId : null;
-    const pin = openId && pinPoint(openId);
-    busy = string('open', pin && pin.inMap ? pin : null, openId && panelTack()) || busy;
-    return busy || [...layer.querySelectorAll('.polaroid')].some((c) => c.getAnimations().some((a) => a.playState === 'running'));
+    const openPin = openId && pinPoint(openId);
+    busy = string('open', openPin && openPin.inMap ? openPin : null, openId && panelTackOf($('.inspect .photo-frame .photo-button', el.body))) || busy;
+    const boardPin = boardId && state.focus.kind === 'rest' && pinPoint(boardId);
+    busy = string('card', boardPin && boardPin.inMap ? boardPin : null, boardPin && panelTackOf($(`.pipe-card[data-pipe-card="${CSS.escape(boardId)}"]`, el.body))) || busy;
+    return busy || [...layer.querySelectorAll('.polaroid')].some((c) => c.getAnimations().some((x) => x.playState === 'running'));
   }
   function loop() { raf = 0; if (draw()) raf = requestAnimationFrame(loop); }
   function kick() { if (!raf) raf = requestAnimationFrame(loop); }
@@ -1118,20 +1177,20 @@ function createPrints(layer) {
   function freeze(c) {
     const cs = getComputedStyle(c);
     const now = { translate: cs.translate, scale: cs.scale, rotate: cs.rotate, opacity: cs.opacity };
-    c.getAnimations().forEach((a) => a.cancel());
+    c.getAnimations().forEach((x) => x.cancel());
     Object.assign(c.style, now);
     return now;
   }
+  const xy = (v) => { const [x = 0, y = 0] = v === 'none' ? [] : v.split(' ').map(parseFloat); return { x, y }; };
 
   function drop(k) {
     if (!k) return;
     if (card === k) card = null;
     if (reducedMotion()) { k.el.remove(); return; }
     exiting.push(k);
-    const now = freeze(k.el);
-    const [tx = 0, ty = 0] = now.translate === 'none' ? [] : now.translate.split(' ').map(parseFloat);
+    const now = freeze(k.el); const t = xy(now.translate);
     k.el.animate({
-      translate: [`${tx}px ${ty}px`, `${tx}px ${ty + 18}px`], scale: [now.scale === 'none' ? 1 : now.scale, 0.88], opacity: [now.opacity, 0],
+      translate: [`${t.x}px ${t.y}px`, `${t.x}px ${t.y + 18}px`], scale: [now.scale === 'none' ? 1 : now.scale, 0.88], opacity: [now.opacity, 0],
     }, { duration: 130, easing: 'cubic-bezier(0.7, 0, 0.84, 0)', fill: 'forwards' }).finished.then(() => {
       k.el.remove(); exiting = exiting.filter((x) => x !== k); kick();
     }, () => {});
@@ -1139,7 +1198,6 @@ function createPrints(layer) {
   }
 
   async function show(p) {
-    clearTimeout(hideTimer);
     if (card && card.id === p.id) return;
     const my = ++token;
     const probe = new Image();
@@ -1151,7 +1209,15 @@ function createPrints(layer) {
     const ratio = probe.naturalWidth ? probe.naturalWidth / probe.naturalHeight : 1;
     const photoW = Math.round(Math.min(PRINT_MAX_PHOTO_W, PRINT_MAX_PHOTO_H * ratio));
     const tilt = newTilt();
-    const fromPin = card && pinPoint(card.id); const toPin = pinPoint(p.id);
+    const toPin = pinPoint(p.id);
+    // A print still dropping away from a pin next door is caught and carried over, not respawned.
+    if (!card && exiting.length) {
+      const k = exiting[exiting.length - 1]; const from = pinPoint(k.id);
+      if (k.el.isConnected && from && toPin && Math.hypot(toPin.x - from.x, toPin.y - from.y) < 100) {
+        exiting = exiting.filter((x) => x !== k); card = k;
+      }
+    }
+    const fromPin = card && pinPoint(card.id);
     if (card && fromPin && toPin && Math.hypot(toPin.x - fromPin.x, toPin.y - fromPin.y) < 100) glide(p, aspect, photoW, tilt);
     else { drop(card); spawn(p, aspect, photoW, tilt); }
     kick();
@@ -1179,8 +1245,8 @@ function createPrints(layer) {
 
   function glide(p, aspect, photoW, tilt) {
     const k = card; const c = k.el;
-    const before = cardTack(c);
-    freeze(c);
+    const before = tackOf(c);
+    const now = freeze(c);
     fill(c, p, aspect, photoW);
     c.dataset.tilt = tilt.toFixed(2);
     const W = c.offsetWidth; const H = c.offsetHeight;
@@ -1193,81 +1259,175 @@ function createPrints(layer) {
     Object.assign(k, { id: p.id, slot: spot.slot, tilt });
     if (reducedMotion()) return;
     const dur = Math.round(clamp(120, Math.hypot(dx, dy) * 0.85, 240));
-    c.animate({ translate: [`${-dx}px ${-dy}px`, '0px 0px'] }, { duration: dur, easing: SWIFT_OUT });
+    // (a print caught mid-drop also recovers its size and opacity on the way)
+    c.animate({ translate: [`${-dx}px ${-dy}px`, '0px 0px'], scale: [now.scale === 'none' ? 1 : now.scale, 1], opacity: [now.opacity, 1] }, { duration: dur, easing: SWIFT_OUT });
     // the heavy bottom lags behind the tack, then swings once past its new angle
     c.animate({ rotate: [`${prevTilt}deg`, `${prevTilt - Math.sign(dx || 1) * 6}deg`, `${tilt}deg`], offset: [0, 0.4, 1] }, { duration: Math.max(dur, 200), easing: PENDULUM });
   }
 
   /**
-   * Lifts the hovered print off the map and sets it down as the panel's Polaroid of the pipe just
-   * opened (call right after the panel switched). Its frame, border and tack shrink as it grows, so
-   * it arrives at exactly the panel print's proportions. False when no print of that pipe was hanging.
+   * Flies a print onto a Polaroid frame in the panel (the open pipe's print, or a card on the board),
+   * landing on it frame for frame: as it scales up or down, its border, padding, shadow, tack and photo
+   * edge are resized so they arrive at exactly the target's sizes, and its caption tucks away. The
+   * target is hidden until the print is on it, then shown as the print goes.
    */
-  function become(id) {
-    clearTimeout(hideTimer);
-    if (!card || card.id !== id) { hide({ instant: true }); return false; }
-    const k = card; card = null; token++;
+  function flyInto(k, target, rotDeg, { toPanel = true, duration = null, lift = 22 } = {}) {
     const c = k.el;
-    const target = $('.inspect .photo-frame:not([hidden]) .photo-button', el.body);
-    if (reducedMotion() || !target) { drop(k); kick(); return false; }
     flying = k;
     c.classList.add('is-becoming');
     target.style.visibility = 'hidden';
     const now = freeze(c);
     const L = lay();
     const W = c.offsetWidth; const tw = target.offsetWidth; const th = target.offsetHeight;
-    const s = tw / W; // the landed frame: same width as the panel print's
-    // Where the panel print's photo is: its untilted layout, turned -1° about its centre.
-    const tb = target.getBoundingClientRect(); const tImg = $('img', target);
-    const rot = deg(-1); const cos = Math.cos(rot); const sin = Math.sin(rot);
-    // (offsetLeft/Top count from inside the frame's border; clientLeft/Top add the border back)
-    const lx = target.clientLeft + tImg.offsetLeft - tw / 2; const ly = target.clientTop + tImg.offsetTop - th / 2;
+    const s = tw / W; // the landed frame is exactly as wide as the target's
+    const tImg = $('img', target); const img = $('img', c);
+    const ph = offsetIn(tImg, target); const tb = target.getBoundingClientRect(); const tbw = target.clientTop;
+    const rot = deg(rotDeg); const cos = Math.cos(rot); const sin = Math.sin(rot);
+    // The target photo's corner on screen: its untilted layout, turned about the frame's centre.
+    const lx = ph.x - tw / 2; const ly = ph.y - th / 2;
     const goal = { x: tb.left + tb.width / 2 + cos * lx - sin * ly - L.left, y: tb.top + tb.height / 2 + sin * lx + cos * ly - L.top };
-    // The print's photo ends 12px/s in from its corner (border 2 + padding 10, shrunk by 1/s).
-    const O = { x: W / 2, y: TACK_Y }; const j = { x: 12 / s - O.x, y: 12 / s - O.y };
+    const O = { x: W / 2, y: TACK_Y }; const j = { x: ph.x / s - O.x, y: ph.y / s - O.y };
     const t = { x: goal.x - c.offsetLeft - O.x - s * (cos * j.x - sin * j.y), y: goal.y - c.offsetTop - O.y - s * (sin * j.x + cos * j.y) };
-    const [tx0 = 0, ty0 = 0] = now.translate === 'none' ? [] : now.translate.split(' ').map(parseFloat);
-    const s0 = now.scale === 'none' ? 1 : parseFloat(now.scale); const r0 = now.rotate === 'none' ? 0 : parseFloat(now.rotate);
-    const dist = Math.hypot(t.x - tx0, t.y - ty0);
-    const dur = Math.round(clamp(240, dist * 0.45, 400));
-    const mid = { x: tx0 + (t.x - tx0) * 0.45, y: ty0 + (t.y - ty0) * 0.45 - 22 }; // lifted off the map on a small arc
+    const t0 = xy(now.translate); const s0 = now.scale === 'none' ? 1 : parseFloat(now.scale); const r0 = now.rotate === 'none' ? 0 : parseFloat(now.rotate);
+    const dur = duration || Math.round(clamp(240, Math.hypot(t.x - t0.x, t.y - t0.y) * 0.45, 400));
+    const mid = { x: t0.x + (t.x - t0.x) * 0.45, y: t0.y + (t.y - t0.y) * 0.45 - lift }; // lifted on a small arc
     const opts = { duration: dur, easing: SWIFT_OUT, fill: 'forwards' };
     c.animate({
-      translate: [`${tx0}px ${ty0}px`, `${mid.x}px ${mid.y}px`, `${t.x}px ${t.y}px`],
-      scale: [s0, (s0 + (s - s0) * 0.45) * 1.03, s],
-      rotate: [`${r0}deg`, `${r0 + (-1 - r0) * 0.45}deg`, '-1deg'],
-      offset: [0, 0.45, 1],
+      translate: [`${t0.x}px ${t0.y}px`, `${mid.x}px ${mid.y}px`, `${t.x}px ${t.y}px`],
+      scale: [s0, (s0 + (s - s0) * 0.45) * (lift ? 1.03 : 1), s],
+      rotate: [`${r0}deg`, `${r0 + (rotDeg - r0) * 0.45}deg`, `${rotDeg}deg`],
+      offset: [0, 0.45, 1], opacity: [now.opacity, 1, 1],
     }, opts).finished.then(() => {
       target.style.visibility = '';
+      if (toPanel && sag.hover) sag.open = { ...sag.hover, vy: sag.hover.vy + 4, progress: 1 }; // set down with a little bounce
+      delete sag.hover;
       c.remove(); flying = null;
-      draw(); kick(); // hand the string straight to the panel print, this same frame
+      draw(); kick(); // hand the string straight to the landed print, this same frame
     }, () => {});
-    // frame, border, shadow and tack shrink by 1/s so they land at the panel print's sizes
+    // frame, shadow, photo edge and tack resize by 1/s so they land at the target's own sizes
+    const cs = getComputedStyle(c); const ts = getComputedStyle(target);
+    const shadow = (ts.boxShadow.match(/(-?[\d.]+)px (-?[\d.]+)px/) || [0, 4, 4]).slice(1).map(Number);
     c.animate({
-      paddingTop: ['10px', `${10 / s}px`], paddingLeft: ['10px', `${10 / s}px`], paddingRight: ['10px', `${10 / s}px`],
-      paddingBottom: [getComputedStyle(c).paddingBottom, `${28 / s}px`], borderWidth: ['2px', `${2 / s}px`],
-      boxShadow: ['4px 4px 0 #232220', `${4 / s}px ${4 / s}px 0 #232220`],
+      borderWidth: [cs.borderTopWidth, `${tbw / s}px`],
+      paddingTop: [cs.paddingTop, `${(ph.y - tbw) / s}px`], paddingLeft: [cs.paddingLeft, `${(ph.x - tbw) / s}px`],
+      paddingRight: [cs.paddingRight, `${(tw - ph.x - ph.w - tbw) / s}px`], paddingBottom: [cs.paddingBottom, `${(th - ph.y - ph.h - tbw) / s}px`],
+      boxShadow: [cs.boxShadow, `${shadow[0] / s}px ${shadow[1] / s}px 0 #232220`],
     }, opts);
-    $('img', c).animate({ borderWidth: ['1.5px', `${1.5 / s}px`] }, opts);
-    $('.tack', c).animate({ top: ['8px', `${8 / s}px`], scale: [1, 1 / s] }, opts); // lands 10px down from the panel print's edge, like its own tack
+    img.animate({ borderWidth: [getComputedStyle(img).borderTopWidth, `${parseFloat(getComputedStyle(tImg).borderTopWidth) / s}px`] }, opts);
+    const tackT = $('.tack', target); const tackC = $('.tack', c);
+    if (tackT && tackC) {
+      const ty = tbw + parseFloat(getComputedStyle(tackT).top); // the target tack's centre, from its outer edge
+      tackC.animate({ top: [getComputedStyle(tackC).top, `${ty / s - tbw / s}px`], scale: [1, 1 / s] }, opts);
+    }
     const cap = $('.polaroid-caption', c);
-    cap.animate({ opacity: [1, 0], height: [`${cap.offsetHeight}px`, '0px'], marginTop: ['10px', '0px'] }, opts);
+    if (cap) cap.animate({ opacity: [1, 0], height: [`${cap.offsetHeight}px`, '0px'], marginTop: [getComputedStyle(cap).marginTop, '0px'] }, opts);
     kick();
+  }
+
+  /**
+   * A print made in the image of a framed photo in the panel (a board card, or the open pipe's
+   * print), laid exactly over it, ready to fly. Null when there's nothing on screen to copy.
+   */
+  function flyerFrom(src, id, rotDeg) {
+    const p = pipeById(state, id); const sImg = src && $('img', src);
+    if (!p || !sImg || !sImg.offsetWidth) return null;
+    const body = el.body.getBoundingClientRect(); const sr = src.getBoundingClientRect();
+    if (sr.bottom < body.top || sr.top > body.bottom) return null; // scrolled out of view
+    const aspect = photoAspect.get(id) || (sImg.naturalWidth ? `${sImg.naturalWidth} / ${sImg.naturalHeight}` : null);
+    if (!aspect) return null;
+    const c = document.createElement('figure');
+    c.className = 'polaroid is-flyer';
+    c.dataset.id = id;
+    c.innerHTML = `<span class="tack" aria-hidden="true"></span><img src="${esc(sImg.currentSrc || sImg.src)}" alt="" style="aspect-ratio: ${aspect}">`;
+    const ph = offsetIn(sImg, src); const bw = src.clientTop; const W = src.offsetWidth; const H = src.offsetHeight;
+    Object.assign(c.style, {
+      width: `${W}px`, borderWidth: `${bw}px`, boxShadow: getComputedStyle(src).boxShadow,
+      paddingTop: `${ph.y - bw}px`, paddingLeft: `${ph.x - bw}px`, paddingRight: `${W - ph.x - ph.w - bw}px`, paddingBottom: `${H - ph.y - ph.h - bw}px`,
+    });
+    $('img', c).style.borderWidth = getComputedStyle(sImg).borderTopWidth;
+    const sTack = $('.tack', src);
+    if (sTack) $('.tack', c).style.top = getComputedStyle(sTack).top;
+    layer.append(c);
+    // frame centre on frame centre, same tilt
+    const L = lay(); const C = { x: sr.left + sr.width / 2 - L.left, y: sr.top + sr.height / 2 - L.top };
+    const r = deg(rotDeg); const vx = W / 2 - W / 2; const vy = H / 2 - TACK_Y;
+    const left = C.x - W / 2 - (Math.cos(r) * vx - Math.sin(r) * vy); const top = C.y - TACK_Y - (Math.sin(r) * vx + Math.cos(r) * vy);
+    Object.assign(c.style, { left: `${left}px`, top: `${top}px`, rotate: `${rotDeg}deg` });
+    return { id, el: c };
+  }
+
+  /** The hovered map print flies to the panel and lands as the open pipe's Polaroid. */
+  function become(id) {
+    if (!card || card.id !== id) { hide({ instant: true }); return false; }
+    const k = card; card = null; token++;
+    const target = $('.inspect .photo-frame:not([hidden]) .photo-button', el.body);
+    if (reducedMotion() || !target) { drop(k); kick(); return false; }
+    flyInto(k, target, -1);
     return true;
   }
 
+  /**
+   * Around a dispatch that switches the panel between the board and an open pipe: before, copies the
+   * framed photo that's about to vanish; after, flies that copy to its new home (board card -> the
+   * open pipe's print, or the open pipe's print -> its card on the board).
+   */
+  function before(action) {
+    if (!active() || reducedMotion() || !state.loaded) return null;
+    if (action.type === 'pipe/select' && action.from === 'grid' && state.focus.kind === 'rest') {
+      const src = $(`.pipe-card[data-pipe-card="${CSS.escape(action.pipeId)}"]`, el.body);
+      const f = flyerFrom(src, action.pipeId, cardTilt(action.pipeId));
+      return f && { to: 'panel', flyer: f, strung: boardId === action.pipeId && sag.card ? { ...sag.card } : null };
+    }
+    if (action.type === 'focus/rest' && state.focus.kind === 'inspect') {
+      const src = $('.inspect .photo-frame:not([hidden]) .photo-button', el.body);
+      const f = flyerFrom(src, state.focus.pipeId, -1);
+      return f && { to: 'card', flyer: f };
+    }
+    return null;
+  }
+  function after(handoff) {
+    if (!handoff) return;
+    const { to, flyer } = handoff;
+    hide({ instant: true });
+    if (to === 'panel') {
+      const target = state.focus.kind === 'inspect' && state.focus.pipeId === flyer.id && $('.inspect .photo-frame:not([hidden]) .photo-button', el.body);
+      if (target) {
+        if (handoff.strung) sag.hover = handoff.strung; // the card's string stays tied on, no fresh cast
+        flyInto(flyer, target, -1, { lift: 12 });
+        draw(); // strung from this frame on
+        return;
+      }
+    } else {
+      const target = state.focus.kind === 'rest' && $(`.pipe-card[data-pipe-card="${CSS.escape(flyer.id)}"]`, el.body);
+      const body = el.body.getBoundingClientRect(); const r = target && target.getBoundingClientRect();
+      if (r && r.top >= body.top - 20 && r.bottom <= body.bottom + 20) {
+        flyer.noString = true; // unpinned from the map on the way back to the board
+        flyInto(flyer, target, cardTilt(flyer.id), { toPanel: false, duration: 260, lift: 0 });
+        return;
+      }
+    }
+    flyer.el.animate({ opacity: [1, 0] }, { duration: 120, fill: 'forwards' }).finished.then(() => flyer.el.remove(), () => {});
+  }
+
+  /** The board card under the pointer gets a string to its pin. */
+  function hoverCard(id) {
+    if (boardId === id) return;
+    boardId = id;
+    if (!id) delete sag.card;
+    kick();
+  }
+
   function hide({ instant = false } = {}) {
-    clearTimeout(hideTimer);
     token++;
     if (instant) {
-      layer.querySelectorAll('.polaroid:not(.is-becoming)').forEach((c) => c.remove());
+      layer.querySelectorAll('.polaroid:not(.is-becoming):not(.is-flyer)').forEach((c) => c.remove());
       card = null; exiting = []; kick();
       return;
     }
-    hideTimer = setTimeout(() => { drop(card); kick(); }, 45);
+    drop(card); kick(); // the moment the pointer is off the pin
   }
 
-  return { show, hide, become, kick, holding: (id) => Boolean(card && card.id === id) };
+  return { show, hide, become, kick, before, after, hoverCard, holding: (id) => Boolean(card && card.id === id) };
 }
 const printLayer = document.createElement('div');
 printLayer.className = 'print-layer';
@@ -1282,6 +1442,7 @@ window.addEventListener('resize', () => prints.kick());
 // ---------------------------------------------------------------- map gestures
 const gestures = attachMapGestures(pipeMap.map, {
   pinsPx: () => (state.focus.kind === 'compose' ? [] : pipeMap.pinsPx()),
+  hoverRadius: () => pipeMap.pinRadius() + 5,
   candidatePx: () => (state.focus.kind === 'compose' ? pipeMap.candidatePx() : null),
   clampLngLat: pipeMap.clampLngLat,
   onPinTap: (id) => {
